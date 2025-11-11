@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package zrm;
+
+import "zrm/generated_protos/geometry.proto";
+import "zrm/generated_protos/header.proto";
+
+// IMU (Inertial Measurement Unit) data
+// Accelerations should be in m/s^2 (not in g's), and rotational velocity should be in rad/sec
+// A covariance matrix of all zeros will be interpreted as "covariance unknown"
+// If you have no estimate for one of the data elements, set element 0 of the associated
+// covariance matrix to -1
+message Imu {
+  Header header = 1;
+
+  Quaternion orientation = 2;
+  repeated double orientation_covariance = 3;  // 9 elements, row major about x, y, z axes
+
+  Vector3 angular_velocity = 4;
+  repeated double angular_velocity_covariance = 5;  // 9 elements, row major about x, y, z axes
+
+  Vector3 linear_acceleration = 6;
+  repeated double linear_acceleration_covariance = 7;  // 9 elements, row major x, y z
+}
+
+// Uncompressed image
+// (0, 0) is at top-left corner of image
+message Image {
+  Header header = 1;  // timestamp should be acquisition time of image
+                      // frame_id should be optical frame of camera
+                      // origin of frame should be optical center of camera
+                      // +x should point to the right in the image
+                      // +y should point down in the image
+                      // +z should point into the plane of the image
+
+  uint32 height = 2;   // image height, that is, number of rows
+  uint32 width = 3;    // image width, that is, number of columns
+  string encoding = 4; // Encoding of pixels -- channel meaning, ordering, size
+  bool is_bigendian = 5;  // is this data bigendian?
+  uint32 step = 6;     // Full row length in bytes
+  bytes data = 7;      // actual matrix data, size is (step * rows)
+}
+
+// Compressed image
+message CompressedImage {
+  Header header = 1;  // timestamp should be acquisition time of image
+                      // frame_id should be optical frame of camera
+
+  string format = 2;  // Specifies the format of the data
+                      // e.g., "bgr8; jpeg compressed bgr8" or "16UC1; compressedDepth png"
+  bytes data = 3;     // Compressed image buffer
+}
+
+// Camera calibration and metadata
+// If the camera is uncalibrated, the matrices d, k, r, p should be left zeroed out.
+// In particular, clients may assume that k[0] == 0.0 indicates an uncalibrated camera.
+message CameraInfo {
+  Header header = 1;  // timestamp should be acquisition time of image
+                      // frame_id should be optical frame of camera
+
+  // Image dimensions with which the camera was calibrated
+  uint32 height = 2;
+  uint32 width = 3;
+
+  // Distortion parameters
+  string distortion_model = 4;  // e.g., "plumb_bob"
+  repeated double d = 5;        // Distortion parameters, size depends on model
+                                // For "plumb_bob": (k1, k2, t1, t2, k3)
+
+  // Intrinsic camera matrix for the raw (distorted) images
+  //     [fx  0 cx]
+  // K = [ 0 fy cy]
+  //     [ 0  0  1]
+  repeated double k = 6;  // 9 elements, 3x3 row-major matrix
+
+  // Rectification matrix (stereo cameras only)
+  repeated double r = 7;  // 9 elements, 3x3 row-major matrix
+
+  // Projection/camera matrix
+  //     [fx'  0  cx' Tx]
+  // P = [ 0  fy' cy' Ty]
+  //     [ 0   0   1   0]
+  repeated double p = 8;  // 12 elements, 3x4 row-major matrix
+
+  // Operational parameters
+  uint32 binning_x = 9;
+  uint32 binning_y = 10;
+}
+
+// Joint state for torque controlled joints
+// The state of each joint (revolute or prismatic) is defined by:
+//  * the position of the joint (rad or m),
+//  * the velocity of the joint (rad/s or m/s) and
+//  * the effort that is applied in the joint (Nm or N).
+// All arrays should have the same size, or be empty.
+message JointState {
+  Header header = 1;
+
+  repeated string name = 2;      // Joint names
+  repeated double position = 3;  // Joint positions (rad or m)
+  repeated double velocity = 4;  // Joint velocities (rad/s or m/s)
+  repeated double effort = 5;    // Joint efforts (Nm or N)
+}

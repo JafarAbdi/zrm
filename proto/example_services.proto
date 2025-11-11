@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package zrm;
+
+// Example services for testing and demonstration purposes
+
+// Simple arithmetic service for testing
+message AddTwoInts {
+  message Request {
+    int32 a = 1;
+    int32 b = 2;
+  }
+
+  message Response {
+    int32 sum = 1;
+  }
+}

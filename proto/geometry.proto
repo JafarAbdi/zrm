@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package zrm;
+
+import "zrm/generated_protos/header.proto";
+
+// 3D point in space
+message Point {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+// 3D vector
+message Vector3 {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+// Quaternion for representing orientation
+message Quaternion {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+  double w = 4;
+}
+
+// Pose: position and orientation
+message Pose {
+  Point position = 1;
+  Quaternion orientation = 2;
+}
+
+// 2D pose (x, y, theta)
+message Pose2D {
+  double x = 1;
+  double y = 2;
+  double theta = 3;  // rotation in radians
+}
+
+// Twist: linear and angular velocity
+message Twist {
+  Vector3 linear = 1;
+  Vector3 angular = 2;
+}
+
+// Stamped pose with timestamp
+message PoseStamped {
+  Header header = 1;
+  Pose pose = 2;
+}

@@ -1,0 +1,13 @@
+target-version = "py312"
+exclude        = ["examples/*.py", "src/zrm/generated_protos/*"]
+
+[lint]
+extend-select = [
+  # Ruff-specific rules
+  "RUF",
+]
+# line-length = 88
+ignore = ["E501"]
+
+[lint.pydocstyle]
+convention = "google"

@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package zrm;
+
+// Trigger service - standard request with success/message response
+message Trigger {
+  message Request {
+    // Empty request
+  }
+
+  message Response {
+    bool success = 1;   // indicate successful run of triggered service
+    string message = 2; // informational, e.g. for error messages
+  }
+}

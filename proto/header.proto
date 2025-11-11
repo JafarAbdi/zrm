@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package zrm;
+
+// Header for timestamped messages
+message Header {
+  int64 timestamp_ns = 1;  // nanoseconds since epoch
+  string frame_id = 2;
+}
