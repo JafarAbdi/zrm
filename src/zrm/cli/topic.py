@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """CLI tool for inspecting ZRM topics."""
 
-import argparse
-
 from zrm import EntityKind, Node
 
 

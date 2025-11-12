@@ -48,9 +48,7 @@ def test_service_server_invalid_type_no_request(context):
         return geometry_pb2.Pose()
 
     # geometry_pb2.Pose doesn't have Request/Response nested messages
-    with pytest.raises(
-        TypeError, match="must have a nested 'Request' message"
-    ):
+    with pytest.raises(TypeError, match="must have a nested 'Request' message"):
         zrm.ServiceServer(
             context,
             node_entity,
@@ -91,9 +89,7 @@ def test_service_client_invalid_type_no_response(context):
     )
 
     # geometry_pb2.Pose doesn't have Request/Response nested messages
-    with pytest.raises(
-        TypeError, match="must have a nested 'Request' message"
-    ):
+    with pytest.raises(TypeError, match="must have a nested 'Request' message"):
         zrm.ServiceClient(
             context,
             node_entity,
