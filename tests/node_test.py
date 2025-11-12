@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
 
 import zrm
 from zrm.generated_protos import example_services_pb2, geometry_pb2
@@ -270,6 +269,8 @@ def test_node_close_cleans_up():
         count_after = node.graph.count(zrm.EntityKind.PUBLISHER, "test/topic")
 
     # Should eventually be removed from graph
-    assert count_after == 0, f"Expected 0 publishers after close, got {count_after} after {elapsed}s"
+    assert count_after == 0, (
+        f"Expected 0 publishers after close, got {count_after} after {elapsed}s"
+    )
 
     node.close()

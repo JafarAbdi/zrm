@@ -5,7 +5,6 @@ from __future__ import annotations
 import threading
 import time
 
-import pytest
 
 import zrm
 from zrm.generated_protos import geometry_pb2
