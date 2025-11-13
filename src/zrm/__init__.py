@@ -3,13 +3,33 @@
 from __future__ import annotations
 
 import pathlib
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 
 import zenoh
 from google.protobuf.message import Message
+
+# StrEnum was added in Python 3.11
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+
+    class StrEnum(str, Enum):
+        """Compatibility shim for StrEnum in Python <3.11."""
+
+        def __new__(cls, value: str) -> StrEnum:
+            """Create new StrEnum member."""
+            obj = str.__new__(cls, value)
+            obj._value_ = value
+            return obj
+
+        def __str__(self) -> str:
+            """Return string representation."""
+            return self.value
+
 
 __all__ = [
     "InvalidTopicName",
