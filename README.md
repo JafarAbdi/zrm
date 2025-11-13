@@ -186,7 +186,7 @@ protoc --pyi_out=src --python_out=src --proto_path=zrm/srvs=proto/zrm/srvs/ prot
 - **header**: Header
 
 **Services** (`zrm.srvs`):
-- **services**: Trigger
+- **std**: Trigger
 
 ## CLI Tools
 
