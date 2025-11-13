@@ -6,7 +6,7 @@ import sys
 
 from google.protobuf import text_format
 
-from zrm import EntityKind, Node, get_message_type
+import zrm
 
 
 # ANSI color codes
@@ -27,7 +27,7 @@ class Color:
 def list_services():
     """List all services in the ZRM network."""
     # Create a temporary node for graph access
-    node = Node("_zrm_cli_service")
+    node = zrm.Node("_zrm_cli_service")
 
     # Get all services with their types
     services = node.graph.get_service_names_and_types()
@@ -44,7 +44,9 @@ def list_services():
         print(f"  Type: {Color.DIM}{type_name}{Color.RESET}")
 
         # Get service servers for this service
-        servers = node.graph.get_entities_by_service(EntityKind.SERVICE, service_name)
+        servers = node.graph.get_entities_by_service(
+            zrm.EntityKind.SERVICE, service_name
+        )
         if servers:
             server_nodes = [e.node_name for e in servers]
             server_count = len(server_nodes)
@@ -53,7 +55,9 @@ def list_services():
             )
 
         # Get service clients for this service
-        clients = node.graph.get_entities_by_service(EntityKind.CLIENT, service_name)
+        clients = node.graph.get_entities_by_service(
+            zrm.EntityKind.CLIENT, service_name
+        )
         if clients:
             client_nodes = [e.node_name for e in clients]
             client_count = len(client_nodes)
@@ -74,7 +78,7 @@ def call_service(service: str, service_type_name: str | None, data: str):
         service_type_name: Protobuf service type name (auto-discovered if None)
         data: Request data in protobuf text format
     """
-    node = Node("_zrm_cli_call")
+    node = zrm.Node("_zrm_cli_call")
 
     # Auto-discover type if not provided
     if service_type_name is None:
@@ -98,7 +102,7 @@ def call_service(service: str, service_type_name: str | None, data: str):
             sys.exit(1)
 
     try:
-        service_type = get_message_type(service_type_name)
+        service_type = zrm.get_message_type(service_type_name)
     except (ImportError, AttributeError, ValueError) as e:
         print(f"{Color.RED}Error loading service type: {e}{Color.RESET}")
         print(

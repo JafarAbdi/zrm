@@ -4,7 +4,7 @@
 import argparse
 import sys
 
-from zrm import EntityKind, Node
+import zrm
 
 
 # ANSI color codes
@@ -25,7 +25,7 @@ class Color:
 def list_nodes():
     """List all nodes in the ZRM network."""
     # Create a temporary node for graph access
-    node = Node("_zrm_cli_node")
+    node = zrm.Node("_zrm_cli_node")
 
     # Get all node names
     node_names = node.graph.get_node_names()
@@ -41,7 +41,9 @@ def list_nodes():
         print(f"{Color.BOLD}{Color.GREEN}Node: {node_name}{Color.RESET}")
 
         # Get publishers for this node
-        publishers = node.graph.get_entities_by_node(EntityKind.PUBLISHER, node_name)
+        publishers = node.graph.get_entities_by_node(
+            zrm.EntityKind.PUBLISHER, node_name
+        )
         if publishers:
             print(f"  {Color.CYAN}Publishers:{Color.RESET}")
             for pub in publishers:
@@ -53,7 +55,9 @@ def list_nodes():
                 print(f"    • {pub.topic} {type_display}")
 
         # Get subscribers for this node
-        subscribers = node.graph.get_entities_by_node(EntityKind.SUBSCRIBER, node_name)
+        subscribers = node.graph.get_entities_by_node(
+            zrm.EntityKind.SUBSCRIBER, node_name
+        )
         if subscribers:
             print(f"  {Color.BLUE}Subscribers:{Color.RESET}")
             for sub in subscribers:
@@ -65,7 +69,7 @@ def list_nodes():
                 print(f"    • {sub.topic} {type_display}")
 
         # Get services for this node
-        services = node.graph.get_entities_by_node(EntityKind.SERVICE, node_name)
+        services = node.graph.get_entities_by_node(zrm.EntityKind.SERVICE, node_name)
         if services:
             print(f"  {Color.HEADER}Services:{Color.RESET}")
             for svc in services:
@@ -77,7 +81,7 @@ def list_nodes():
                 print(f"    • {svc.topic} {type_display}")
 
         # Get clients for this node
-        clients = node.graph.get_entities_by_node(EntityKind.CLIENT, node_name)
+        clients = node.graph.get_entities_by_node(zrm.EntityKind.CLIENT, node_name)
         if clients:
             print(f"  {Color.YELLOW}Clients:{Color.RESET}")
             for client in clients:
