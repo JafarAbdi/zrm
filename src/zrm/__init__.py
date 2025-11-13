@@ -7,7 +7,7 @@ import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+import enum
 
 import zenoh
 from google.protobuf.message import Message
@@ -16,19 +16,36 @@ from google.protobuf.message import Message
 if sys.version_info >= (3, 11):
     from enum import StrEnum
 else:
+    # Based on https://github.com/irgeek/StrEnum for compatibility with python<3.11
+    class StrEnum(str, enum.Enum):
+        """
+        StrEnum is a Python ``enum.Enum`` that inherits from ``str``. The default
+        ``auto()`` behavior uses the member name as its value.
 
-    class StrEnum(str, Enum):
-        """Compatibility shim for StrEnum in Python <3.11."""
+        Example usage::
 
-        def __new__(cls, value: str) -> StrEnum:
-            """Create new StrEnum member."""
-            obj = str.__new__(cls, value)
-            obj._value_ = value
-            return obj
+            class Example(StrEnum):
+                UPPER_CASE = auto()
+                lower_case = auto()
+                MixedCase = auto()
 
-        def __str__(self) -> str:
-            """Return string representation."""
-            return self.value
+            assert Example.UPPER_CASE == "UPPER_CASE"
+            assert Example.lower_case == "lower_case"
+            assert Example.MixedCase == "MixedCase"
+        """
+
+        def __new__(cls, value, *args, **kwargs):
+            if not isinstance(value, (str, enum.auto)):
+                raise TypeError(
+                    f"Values of StrEnums must be strings: {value!r} is a {type(value)}"
+                )
+            return super().__new__(cls, value, *args, **kwargs)
+
+        def __str__(self):
+            return str(self.value)
+
+        def _generate_next_value_(name, *_):
+            return name
 
 
 __all__ = [
