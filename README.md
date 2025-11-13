@@ -11,7 +11,16 @@ A minimal, single-file communication middleware built on Zenoh, providing a clea
 ## Installation
 
 ```bash
-# Install dependencies using uv
+# Install from PyPI
+pip install zrm
+```
+
+For development:
+
+```bash
+# Clone the repository and install dependencies
+git clone https://github.com/yourusername/zrm.git
+cd zrm
 uv sync
 ```
 
