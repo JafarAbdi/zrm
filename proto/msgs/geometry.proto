@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package zrm;
 
-import "zrm/generated_protos/header.proto";
+import "zrm/msgs/header.proto";
 
 // 3D point in space
 message Point {

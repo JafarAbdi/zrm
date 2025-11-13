@@ -1,4 +1,4 @@
-from zrm.generated_protos import header_pb2 as _header_pb2
+from zrm.msgs import header_pb2 as _header_pb2
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from collections.abc import Mapping as _Mapping

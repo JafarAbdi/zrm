@@ -6,7 +6,7 @@ import time
 
 
 import zrm
-from zrm.generated_protos import example_services_pb2, geometry_pb2
+from zrm.srvs import example_services_pb2, geometry_pb2
 
 
 def test_node_creation(global_context):

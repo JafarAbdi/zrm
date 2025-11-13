@@ -51,7 +51,7 @@ uv run pytest tests/ -v
 
 ```python
 from zrm import Node
-from zrm.generated_protos import geometry_pb2
+from zrm.msgs import geometry_pb2
 
 # Create a node
 node = Node("my_node")
@@ -95,7 +95,7 @@ Services use namespaced Request/Response messages for better organization:
 
 ```python
 from zrm import Node
-from zrm.generated_protos import example_services_pb2
+from zrm.srvs import example_services_pb2
 
 # Define service handler
 def add_callback(req):
@@ -143,39 +143,107 @@ message AddTwoInts {
 }
 ```
 
-## Protobuf Workflow
+## Message Organization
 
-ZRM uses protobuf for all message serialization. Standard message definitions are in `proto/`.
+ZRM uses a convention-based message organization inspired by ROS2:
+
+### Directory Structure
+
+```
+proto/
+├── zrm/
+│   ├── msgs/              # Message definitions
+│   │   ├── geometry.proto
+│   │   ├── sensor.proto
+│   │   └── header.proto
+│   └── srvs/              # Service definitions
+│       ├── services.proto
+│       └── example_services.proto
+src/zrm/
+├── msgs/                  # Generated message modules
+│   ├── geometry_pb2.py
+│   ├── sensor_pb2.py
+│   └── header_pb2.py
+└── srvs/                  # Generated service modules
+    ├── services_pb2.py
+    └── example_services_pb2.py
+```
+
+### Message Type Identifiers
+
+Each message type has a unique identifier in the format: `package/category/module/Type`
+
+Examples:
+- `zrm/msgs/geometry/Point`
+- `zrm/msgs/geometry/Pose2D`
+- `zrm/srvs/services/Trigger.Request`
+
+### Dynamic Message Import
+
+```python
+from zrm import get_message_type, get_type_name
+
+# Import a message type by identifier
+Point = get_message_type('zrm/msgs/geometry/Point')
+point = Point(x=1.0, y=2.0, z=3.0)
+
+# Get identifier from a message instance or type
+from zrm.msgs import geometry_pb2
+identifier = get_type_name(geometry_pb2.Point)
+# Returns: 'zrm/msgs/geometry/Point'
+```
 
 ### Generating Python Code
 
 ```bash
-# To make sure protoc generate the files with the correct import paths
-./protoc-33.0-linux-x86_64/bin/protoc \
-  --pyi_out=src \
-  --python_out=src \
-  --proto_path=zrm/generated_protos=proto \
-  $(fd --extension proto)
+# Generate message modules
+protoc --pyi_out=src --python_out=src --proto_path=zrm/msgs=proto/zrm/msgs/ proto/zrm/msgs/*.proto
+
+# Generate service modules
+protoc --pyi_out=src --python_out=src --proto_path=zrm/srvs=proto/zrm/srvs/ proto/zrm/srvs/*.proto
 ```
 
 ### Standard Messages
 
-- **geometry.proto**: Point, Vector3, Quaternion, Pose, Pose2D, Twist, PoseStamped
-- **services.proto**: Trigger
+**Messages** (`zrm.msgs`):
+- **geometry**: Point, Vector3, Quaternion, Pose, Pose2D, Twist, PoseStamped
+- **sensor**: Image, LaserScan, PointCloud2
+- **header**: Header
+
+**Services** (`zrm.srvs`):
+- **services**: Trigger
 
 ## CLI Tools
 
-ZRM provides command-line tools for inspecting the network:
+ZRM provides command-line tools for inspecting and interacting with the network:
+
+### Topic Commands
+
+```bash
+# List all topics and their publishers/subscribers
+zrm-topic list
+
+# Echo messages from a topic (auto-discovers type)
+zrm-topic echo /robot/pose
+
+# Echo with explicit type
+zrm-topic echo /robot/pose -t zrm/msgs/geometry/Pose2D
+
+# Publish to a topic
+zrm-topic pub /robot/pose "x: 1.0 y: 2.0 theta: 0.5" -t zrm/msgs/geometry/Pose2D -r 10
+
+# Measure topic frequency
+zrm-topic hz /robot/pose
+```
+
+### Node and Service Commands
 
 ```bash
 # List all nodes in the network
-uv run zrm-nodes
-
-# List all topics and their publishers/subscribers
-uv run zrm-topics
+zrm-node list
 
 # List all services in the network
-uv run zrm-services
+zrm-service list
 ```
 
 ## Examples

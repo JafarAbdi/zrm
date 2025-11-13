@@ -6,7 +6,7 @@ import math
 
 import zrm
 from zrm import Node
-from zrm.generated_protos import geometry_pb2
+from zrm.msgs import geometry_pb2
 
 
 def main():

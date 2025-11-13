@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package zrm;
 
-import "zrm/generated_protos/geometry.proto";
-import "zrm/generated_protos/header.proto";
+import "zrm/msgs/geometry.proto";
+import "zrm/msgs/header.proto";
 
 // IMU (Inertial Measurement Unit) data
 // Accelerations should be in m/s^2 (not in g's), and rotational velocity should be in rad/sec

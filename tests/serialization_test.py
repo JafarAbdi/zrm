@@ -6,20 +6,20 @@ import pytest
 import zenoh
 
 import zrm
-from zrm.generated_protos import geometry_pb2
+from zrm.msgs import geometry_pb2
 
 
 def test_get_type_name_from_instance():
     """Test get_type_name with a message instance."""
     msg = geometry_pb2.Pose()
     type_name = zrm.get_type_name(msg)
-    assert type_name == "zrm.Pose"
+    assert type_name == "zrm/msgs/geometry/Pose"
 
 
 def test_get_type_name_from_type():
     """Test get_type_name with a message type."""
     type_name = zrm.get_type_name(geometry_pb2.Pose)
-    assert type_name == "zrm.Pose"
+    assert type_name == "zrm/msgs/geometry/Pose"
 
 
 def test_serialize():
@@ -48,7 +48,7 @@ def test_deserialize_success():
     )
 
     zbytes = zenoh.ZBytes(original.SerializeToString())
-    actual_type_name = "zrm.Pose"
+    actual_type_name = "zrm/msgs/geometry/Pose"
 
     deserialized = zrm.deserialize(zbytes, geometry_pb2.Pose, actual_type_name)
 
@@ -66,9 +66,9 @@ def test_deserialize_type_mismatch():
     # Try to deserialize with wrong type name
     with pytest.raises(
         zrm.MessageTypeMismatchError,
-        match="Message type mismatch: expected 'zrm.Pose', got 'zrm.Point'",
+        match="Message type mismatch: expected 'zrm/msgs/geometry/Pose', got 'zrm/msgs/geometry/Point'",
     ):
-        zrm.deserialize(zbytes, geometry_pb2.Pose, "zrm.Point")
+        zrm.deserialize(zbytes, geometry_pb2.Pose, "zrm/msgs/geometry/Point")
 
 
 def test_serialize_deserialize_roundtrip():
@@ -95,7 +95,7 @@ def test_serialize_empty_message():
     assert isinstance(zbytes, zenoh.ZBytes)
 
     # Deserialize and verify
-    deserialized = zrm.deserialize(zbytes, geometry_pb2.Pose, "zrm.Pose")
+    deserialized = zrm.deserialize(zbytes, geometry_pb2.Pose, "zrm/msgs/geometry/Pose")
     assert isinstance(deserialized, geometry_pb2.Pose)
 
 

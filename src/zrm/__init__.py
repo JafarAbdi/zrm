@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pathlib
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -279,10 +280,89 @@ class GraphData:
 
 
 def get_type_name(msg_or_type) -> str:
-    """Get the full protobuf type name from a message instance or type."""
-    if isinstance(msg_or_type, type):
-        return msg_or_type.DESCRIPTOR.full_name
-    return msg_or_type.DESCRIPTOR.full_name
+    """Get the type identifier from a message instance or type.
+
+    Args:
+        msg_or_type: Protobuf message instance or class
+
+    Returns:
+        Type identifier string like 'zrm/msgs/geometry/Point' or 'zrm/srvs/services/Trigger.Request'
+
+    Examples:
+        >>> from zrm.msgs import geometry_pb2
+        >>> get_type_name(geometry_pb2.Point)
+        'zrm/msgs/geometry/Point'
+        >>> from zrm.srvs import services_pb2
+        >>> get_type_name(services_pb2.Trigger.Request)
+        'zrm/srvs/services/Trigger.Request'
+    """
+
+    # file.name: "zrm/msgs/geometry.proto"
+    # full_name: "zrm.Point" or "zrm.Trigger.Request"
+    file_path = pathlib.Path(msg_or_type.DESCRIPTOR.file.name)
+    full_name = msg_or_type.DESCRIPTOR.full_name
+
+    # Parse file path: zrm/msgs/geometry.proto -> category='msgs', module='geometry'
+    parts = file_path.parts
+    category = parts[1]  # 'msgs' or 'srvs'
+    module = file_path.stem  # 'geometry'
+
+    # Parse full_name: "zrm.Point" -> package='zrm', type_path='Point'
+    # or "zrm.Trigger.Request" -> package='zrm', type_path='Trigger.Request'
+    name_parts = full_name.split(".")
+    package = name_parts[0]  # 'zrm'
+    type_path = ".".join(name_parts[1:])  # 'Point' or 'Trigger.Request'
+
+    # Build identifier: 'zrm/msgs/geometry/Point'
+    return f"{package}/{category}/{module}/{type_path}"
+
+
+def get_message_type(identifier: str) -> type[Message]:
+    """Get message type from identifier string.
+
+    Args:
+        identifier: Type identifier like 'zrm/msgs/geometry/Point' or 'zrm/srvs/services/Trigger.Request'
+
+    Returns:
+        Protobuf message class
+
+    Examples:
+        >>> Point = get_message_type('zrm/msgs/geometry/Point')
+        >>> point = Point(x=1.0, y=2.0, z=3.0)
+        >>> TriggerRequest = get_message_type('zrm/srvs/services/Trigger.Request')
+    """
+    parts = identifier.split("/")
+    if len(parts) != 4:
+        raise ValueError(
+            f"Invalid identifier format: {identifier}. Expected 'package/category/module/Type'"
+        )
+
+    package, category, module_name, type_path = parts
+
+    # Validate category
+    if category not in ("msgs", "srvs"):
+        raise ValueError(f"Category must be 'msgs' or 'srvs', got '{category}'")
+
+    # Import module: zrm.msgs.geometry_pb2
+    import_path = f"{package}.{category}.{module_name}_pb2"
+    type_parts = type_path.split(".")  # ['Point'] or ['Trigger', 'Request']
+
+    try:
+        module = __import__(import_path, fromlist=[type_parts[0]])
+    except ImportError as e:
+        raise ImportError(f"Failed to import module '{import_path}': {e}") from e
+
+    # Navigate nested types: module.Trigger.Request
+    obj = module
+    for part in type_parts:
+        try:
+            obj = getattr(obj, part)
+        except AttributeError as e:
+            raise AttributeError(
+                f"Type '{type_path}' not found in module '{import_path}'"
+            ) from e
+
+    return obj
 
 
 def serialize(msg: Message) -> zenoh.ZBytes:

@@ -1,5 +1,5 @@
-from zrm.generated_protos import geometry_pb2 as _geometry_pb2
-from zrm.generated_protos import header_pb2 as _header_pb2
+from zrm.msgs import geometry_pb2 as _geometry_pb2
+from zrm.msgs import header_pb2 as _header_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message

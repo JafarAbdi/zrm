@@ -1,5 +1,5 @@
 target-version = "py312"
-exclude        = ["examples/*.py", "src/zrm/generated_protos/*", "tests/*.py"]
+exclude        = ["examples/*.py", "src/zrm/msgs/*", "src/zrm/msgs/*", "tests/*.py"]
 
 [lint]
 extend-select = [
