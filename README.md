@@ -4,7 +4,7 @@ A minimal, single-file communication middleware built on Zenoh, providing a clea
 
 ## Features
 
-- **Minimalist**: Single-file implementation
+- **Minimalist**: [Single-file implementation](src/zrm/__init__.py)
 - **Type-safe**: Protobuf-based serialization with runtime type checking
 - **Ergonomic**: Pythonic API with sensible defaults
 
