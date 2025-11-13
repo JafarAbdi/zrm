@@ -473,7 +473,7 @@ class Subscriber:
         Args:
             context: Context containing the Zenoh session
             liveliness_key: Liveliness key for graph discovery
-            topic: Zenoh key expression (e.g., "robot/pose", "robot/*")
+            topic: Zenoh key expression (e.g., "robot/pose")
             msg_type: Protobuf message type
             callback: Optional callback function called on each message
         """
@@ -1016,7 +1016,7 @@ class Node:
         """Create a subscriber for this node.
 
         Args:
-            topic: Zenoh key expression (e.g., "robot/pose", "robot/*")
+            topic: Zenoh key expression (e.g., "robot/pose")
             msg_type: Protobuf message type
             callback: Optional callback function called on each message
 
