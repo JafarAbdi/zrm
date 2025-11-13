@@ -7,7 +7,8 @@ import time
 
 
 import zrm
-from zrm.srvs import example_services_pb2, geometry_pb2
+from zrm.srvs import example_services_pb2
+from zrm.msgs import geometry_pb2
 
 
 def test_multi_node_pub_sub():
