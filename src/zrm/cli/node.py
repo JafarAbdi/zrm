@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """CLI tool for inspecting ZRM nodes."""
 
+import argparse
+import sys
+
 from zrm import EntityKind, Node
 
 
@@ -92,7 +95,24 @@ def list_nodes():
 
 def main():
     """Main entry point for zrm-node CLI."""
-    list_nodes()
+    parser = argparse.ArgumentParser(
+        description="ZRM node inspection tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+
+    # List command
+    subparsers.add_parser("list", help="List all nodes in the network")
+
+    args = parser.parse_args()
+
+    match args.command:
+        case "list":
+            list_nodes()
+        case _:
+            parser.print_help()
+            sys.exit(1)
 
 
 if __name__ == "__main__":

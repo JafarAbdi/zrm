@@ -211,14 +211,24 @@ zrm-topic pub /robot/pose "x: 1.0 y: 2.0 theta: 0.5" -t zrm/msgs/geometry/Pose2D
 zrm-topic hz /robot/pose
 ```
 
-### Node and Service Commands
+### Node Commands
 
 ```bash
 # List all nodes in the network
 zrm-node list
+```
 
+### Service Commands
+
+```bash
 # List all services in the network
 zrm-service list
+
+# Call a service (auto-discovers type)
+zrm-service call add_two_ints 'a: 1 b: 2'
+
+# Call with explicit type
+zrm-service call add_two_ints 'a: 1 b: 2' -t zrm/srvs/examples/AddTwoInts
 ```
 
 ## Examples
