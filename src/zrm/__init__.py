@@ -487,15 +487,17 @@ class ServiceServer:
                 actual_request_type = query.attachment.to_bytes().decode()
 
                 # Deserialize request with type validation
-                request = deserialize(query.payload, request_type, actual_request_type)
+                request = deserialize(
+                    query.payload, self._request_type, actual_request_type
+                )
 
                 # Call user callback
                 response = self._callback(request)
 
                 # Validate response type
-                if not isinstance(response, response_type):
+                if not isinstance(response, self._response_type):
                     raise TypeError(
-                        f"Callback must return {response_type.__name__}, "
+                        f"Callback must return {self._response_type.__name__}, "
                         f"got {type(response).__name__}",
                     )
 
@@ -972,16 +974,12 @@ class Node:
                 f"service_type must be a protobuf message class, got {type(service_type).__name__}"
             )
 
-        try:
-            request_type = service_type.Request
-        except AttributeError:
+        if not hasattr(service_type, "Request"):
             raise TypeError(
                 f"Service type '{service_type.__name__}' must have a nested 'Request' message"
             )
 
-        try:
-            response_type = service_type.Response
-        except AttributeError:
+        if not hasattr(service_type, "Response"):
             raise TypeError(
                 f"Service type '{service_type.__name__}' must have a nested 'Response' message"
             )
@@ -992,7 +990,7 @@ class Node:
             kind=EntityKind.SERVICE,
             node_name=self._name,
             topic=service,
-            type_name=get_type_name(request_type),
+            type_name=get_type_name(service_type),
         )
         return ServiceServer(self._context, lv_key, service, service_type, callback)
 
@@ -1015,16 +1013,12 @@ class Node:
                 f"service_type must be a protobuf message class, got {type(service_type).__name__}"
             )
 
-        try:
-            request_type = service_type.Request
-        except AttributeError:
+        if not hasattr(service_type, "Request"):
             raise TypeError(
                 f"Service type '{service_type.__name__}' must have a nested 'Request' message"
             )
 
-        try:
-            response_type = service_type.Response
-        except AttributeError:
+        if not hasattr(service_type, "Response"):
             raise TypeError(
                 f"Service type '{service_type.__name__}' must have a nested 'Response' message"
             )
@@ -1035,7 +1029,7 @@ class Node:
             kind=EntityKind.CLIENT,
             node_name=self._name,
             topic=service,
-            type_name=get_type_name(request_type),
+            type_name=get_type_name(service_type),
         )
         return ServiceClient(self._context, lv_key, service, service_type)
 

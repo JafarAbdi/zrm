@@ -41,9 +41,7 @@ def list_services():
         # Get service servers for this service
         servers = node.graph.get_entities_by_service(EntityKind.SERVICE, service_name)
         if servers:
-            server_nodes = [
-                e.endpoint.node.name for e in servers if e.endpoint is not None
-            ]
+            server_nodes = [e.node_name for e in servers]
             server_count = len(server_nodes)
             print(
                 f"  Servers: {Color.GREEN}{server_count}{Color.RESET} {Color.DIM}{server_nodes}{Color.RESET}"
@@ -52,9 +50,7 @@ def list_services():
         # Get service clients for this service
         clients = node.graph.get_entities_by_service(EntityKind.CLIENT, service_name)
         if clients:
-            client_nodes = [
-                e.endpoint.node.name for e in clients if e.endpoint is not None
-            ]
+            client_nodes = [e.node_name for e in clients]
             client_count = len(client_nodes)
             print(
                 f"  Clients: {Color.YELLOW}{client_count}{Color.RESET} {Color.DIM}{client_nodes}{Color.RESET}"

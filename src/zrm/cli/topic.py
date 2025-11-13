@@ -41,9 +41,7 @@ def list_topics():
         # Get publishers for this topic
         publishers = node.graph.get_entities_by_topic(EntityKind.PUBLISHER, topic_name)
         if publishers:
-            pub_nodes = [
-                e.endpoint.node.name for e in publishers if e.endpoint is not None
-            ]
+            pub_nodes = [e.node_name for e in publishers]
             pub_count = len(pub_nodes)
             print(
                 f"  Publishers: {Color.CYAN}{pub_count}{Color.RESET} {Color.DIM}{pub_nodes}{Color.RESET}"
@@ -54,9 +52,7 @@ def list_topics():
             EntityKind.SUBSCRIBER, topic_name
         )
         if subscribers:
-            sub_nodes = [
-                e.endpoint.node.name for e in subscribers if e.endpoint is not None
-            ]
+            sub_nodes = [e.node_name for e in subscribers]
             sub_count = len(sub_nodes)
             print(
                 f"  Subscribers: {Color.BLUE}{sub_count}{Color.RESET} {Color.DIM}{sub_nodes}{Color.RESET}"
