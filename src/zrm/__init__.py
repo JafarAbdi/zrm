@@ -468,31 +468,10 @@ class ServiceServer:
             service: Service name (e.g., "compute_trajectory")
             service_type: Protobuf service message type with nested Request and Response
             callback: Function that takes request and returns response
-
-        Raises:
-            TypeError: If service_type doesn't have Request and Response nested messages
         """
-        # Validate that service_type has Request and Response nested messages
-        if not isinstance(service_type, type):
-            raise TypeError(
-                f"service_type must be a protobuf message class, got {type(service_type).__name__}"
-            )
-
-        request_type = getattr(service_type, "Request", None)
-        response_type = getattr(service_type, "Response", None)
-
-        if request_type is None:
-            raise TypeError(
-                f"Service type {service_type.__name__} must have a nested 'Request' message"
-            )
-        if response_type is None:
-            raise TypeError(
-                f"Service type {service_type.__name__} must have a nested 'Response' message"
-            )
-
         self._service = service
-        self._request_type = request_type
-        self._response_type = response_type
+        self._request_type = service_type.Request
+        self._response_type = service_type.Response
         self._callback = callback
 
         self._session = context.session
@@ -566,31 +545,10 @@ class ServiceClient:
             liveliness_key: Liveliness key for graph discovery
             service: Service name
             service_type: Protobuf service message type with nested Request and Response
-
-        Raises:
-            TypeError: If service_type doesn't have Request and Response nested messages
         """
-        # Validate that service_type has Request and Response nested messages
-        if not isinstance(service_type, type):
-            raise TypeError(
-                f"service_type must be a protobuf message class, got {type(service_type).__name__}"
-            )
-
-        request_type = getattr(service_type, "Request", None)
-        response_type = getattr(service_type, "Response", None)
-
-        if request_type is None:
-            raise TypeError(
-                f"Service type {service_type.__name__} must have a nested 'Request' message"
-            )
-        if response_type is None:
-            raise TypeError(
-                f"Service type {service_type.__name__} must have a nested 'Response' message"
-            )
-
         self._service = service
-        self._request_type = request_type
-        self._response_type = response_type
+        self._request_type = service_type.Request
+        self._response_type = service_type.Response
 
         self._session = context.session
 
@@ -1009,14 +967,32 @@ class Node:
         Returns:
             ServiceServer instance
         """
-        request_type = getattr(service_type, "Request", None)
+        if not isinstance(service_type, type):
+            raise TypeError(
+                f"service_type must be a protobuf message class, got {type(service_type).__name__}"
+            )
+
+        try:
+            request_type = service_type.Request
+        except AttributeError:
+            raise TypeError(
+                f"Service type '{service_type.__name__}' must have a nested 'Request' message"
+            )
+
+        try:
+            response_type = service_type.Response
+        except AttributeError:
+            raise TypeError(
+                f"Service type '{service_type.__name__}' must have a nested 'Response' message"
+            )
+
         lv_key = _make_endpoint_lv_key(
             domain_id=self._domain_id,
             z_id=self._z_id,
             kind=EntityKind.SERVICE,
             node_name=self._name,
             topic=service,
-            type_name=get_type_name(request_type) if request_type else None,
+            type_name=get_type_name(request_type),
         )
         return ServiceServer(self._context, lv_key, service, service_type, callback)
 
@@ -1034,14 +1010,32 @@ class Node:
         Returns:
             ServiceClient instance
         """
-        request_type = getattr(service_type, "Request", None)
+        if not isinstance(service_type, type):
+            raise TypeError(
+                f"service_type must be a protobuf message class, got {type(service_type).__name__}"
+            )
+
+        try:
+            request_type = service_type.Request
+        except AttributeError:
+            raise TypeError(
+                f"Service type '{service_type.__name__}' must have a nested 'Request' message"
+            )
+
+        try:
+            response_type = service_type.Response
+        except AttributeError:
+            raise TypeError(
+                f"Service type '{service_type.__name__}' must have a nested 'Response' message"
+            )
+
         lv_key = _make_endpoint_lv_key(
             domain_id=self._domain_id,
             z_id=self._z_id,
             kind=EntityKind.CLIENT,
             node_name=self._name,
             topic=service,
-            type_name=get_type_name(request_type) if request_type else None,
+            type_name=get_type_name(request_type),
         )
         return ServiceClient(self._context, lv_key, service, service_type)
 
