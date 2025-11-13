@@ -5,7 +5,7 @@ import time
 
 import zrm
 from zrm import Node
-from zrm.srvs import examples_pb2
+from zrm.srvs import examples_pb2 as example_srvs
 
 
 def main():
@@ -15,7 +15,7 @@ def main():
     # Create service client via node factory method
     client = node.create_client(
         "add_two_ints",
-        examples_pb2.AddTwoInts,
+        example_srvs.AddTwoInts,
     )
     print("Service client ready")
     print("Calling service every 2 seconds... (Ctrl+C to exit)")
@@ -24,7 +24,7 @@ def main():
     try:
         while True:
             # Create request
-            request = examples_pb2.AddTwoInts.Request(a=count, b=count * 2)
+            request = example_srvs.AddTwoInts.Request(a=count, b=count * 2)
 
             # Call service
             print(f"Calling service: {request.a} + {request.b}")

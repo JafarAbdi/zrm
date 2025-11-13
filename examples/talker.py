@@ -6,7 +6,7 @@ import math
 
 import zrm
 from zrm import Node
-from zrm.msgs import geometry_pb2
+from zrm.msgs import geometry_pb2 as geometry_msgs
 
 
 def main():
@@ -14,7 +14,7 @@ def main():
     node = Node("talker_node")
 
     # Create publisher via node factory method
-    pub = node.create_publisher("robot/pose", geometry_pb2.Pose2D)
+    pub = node.create_publisher("robot/pose", geometry_msgs.Pose2D)
     print("Publisher started on topic 'robot/pose'")
 
     # Publish messages in a loop
@@ -23,7 +23,7 @@ def main():
         while True:
             # Create a message with circular motion
             t = count * 0.1
-            msg = geometry_pb2.Pose2D(
+            msg = geometry_msgs.Pose2D(
                 x=math.cos(t),
                 y=math.sin(t),
                 theta=t,

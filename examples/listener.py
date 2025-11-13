@@ -5,10 +5,10 @@ import time
 
 import zrm
 from zrm import Node
-from zrm.msgs import geometry_pb2
+from zrm.msgs import geometry_pb2 as geometry_msgs
 
 
-def pose_callback(msg: geometry_pb2.Pose2D):
+def pose_callback(msg: geometry_msgs.Pose2D):
     """Callback function called whenever a message is received."""
     print(f"Received: x={msg.x:.2f}, y={msg.y:.2f}, theta={msg.theta:.2f}")
 
@@ -18,7 +18,9 @@ def main():
     node = Node("listener_node")
 
     # Create subscriber via node factory method
-    sub = node.create_subscriber("robot/pose", geometry_pb2.Pose2D, callback=pose_callback)
+    sub = node.create_subscriber(
+        "robot/pose", geometry_msgs.Pose2D, callback=pose_callback
+    )
     print("Subscriber started on topic 'robot/pose'")
     print("Waiting for messages... (Ctrl+C to exit)\n")
 
