@@ -89,114 +89,92 @@ class EntityKind(StrEnum):
 
 
 @dataclass
-class NodeEntity:
-    """Node entity in the graph."""
+class ParsedEntity:
+    """Minimal parsed entity data from liveliness key."""
 
-    domain_id: int
-    z_id: str
-    name: str
-
-    def key(self) -> str:
-        """Get unique key for this node (name)."""
-        return self.name
-
-    def to_liveliness_ke(self) -> str:
-        """Convert to liveliness key expression."""
-        node_name = self.name.replace("/", "%")
-        return (
-            f"{ADMIN_SPACE}/{self.domain_id}/{self.z_id}/{EntityKind.NODE}/{node_name}"
-        )
-
-
-@dataclass
-class EndpointEntity:
-    """Endpoint entity (publisher, subscriber, service, client) in the graph."""
-
-    node: NodeEntity
     kind: EntityKind
-    topic: str
+    node_name: str
+    topic: str | None = None  # None for NODE kind
     type_name: str | None = None
 
-    def to_liveliness_ke(self) -> str:
-        """Convert to liveliness key expression."""
-        node_name = self.node.name.replace("/", "%")
-        topic_name = self.topic.replace("/", "%")
-        type_info = (
-            "EMPTY" if self.type_name is None else self.type_name.replace("/", "%")
+
+def _make_node_lv_key(domain_id: int, z_id: str, name: str) -> str:
+    """Build node liveliness key.
+
+    Format: @zrm_lv/{domain_id}/{z_id}/NN/{node_name}
+    """
+    node_name = name.replace("/", "%")
+    return f"{ADMIN_SPACE}/{domain_id}/{z_id}/{EntityKind.NODE}/{node_name}"
+
+
+def _make_endpoint_lv_key(
+    domain_id: int,
+    z_id: str,
+    kind: EntityKind,
+    node_name: str,
+    topic: str,
+    type_name: str | None,
+) -> str:
+    """Build endpoint liveliness key.
+
+    Format: @zrm_lv/{domain_id}/{z_id}/{kind}/{node_name}/{topic_name}/{type_name}
+    """
+    node = node_name.replace("/", "%")
+    topic_escaped = topic.replace("/", "%")
+    type_info = "EMPTY" if type_name is None else type_name.replace("/", "%")
+    return f"{ADMIN_SPACE}/{domain_id}/{z_id}/{kind}/{node}/{topic_escaped}/{type_info}"
+
+
+def _parse_lv_key(ke: str) -> ParsedEntity:
+    """Parse a liveliness key expression into a ParsedEntity.
+
+    Format:
+    - Node: @zrm_lv/{domain_id}/{z_id}/NN/{node_name}
+    - Endpoint: @zrm_lv/{domain_id}/{z_id}/{kind}/{node_name}/{topic_name}/{type_name}
+
+    Args:
+        ke: Liveliness key expression to parse
+
+    Returns:
+        ParsedEntity with extracted data
+
+    Raises:
+        ValueError: If the key expression is malformed or invalid
+    """
+    parts = ke.split("/")
+    if len(parts) < 5:
+        raise ValueError(
+            f"Invalid liveliness key '{ke}': expected at least 5 parts, got {len(parts)}"
         )
 
-        return (
-            f"{ADMIN_SPACE}/{self.node.domain_id}/{self.node.z_id}/"
-            f"{self.kind}/{node_name}/{topic_name}/{type_info}"
+    if parts[0] != ADMIN_SPACE:
+        raise ValueError(
+            f"Invalid liveliness key '{ke}': expected admin space '{ADMIN_SPACE}', got '{parts[0]}'"
         )
 
+    try:
+        entity_kind = EntityKind(parts[3])
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid liveliness key '{ke}': unknown entity kind '{parts[3]}'"
+        ) from e
 
-@dataclass
-class Entity:
-    """Union type for Node or Endpoint entity."""
+    node_name = parts[4].replace("%", "/")
 
-    node: NodeEntity | None = None
-    endpoint: EndpointEntity | None = None
+    if entity_kind == EntityKind.NODE:
+        return ParsedEntity(kind=entity_kind, node_name=node_name)
 
-    def kind(self) -> EntityKind:
-        """Get the entity kind."""
-        if self.endpoint is not None:
-            return self.endpoint.kind
-        return EntityKind.NODE
-
-    def get_endpoint(self) -> EndpointEntity | None:
-        """Get endpoint entity if this is an endpoint."""
-        return self.endpoint
-
-    @staticmethod
-    def from_liveliness_ke(ke: str) -> "Entity | None":
-        """Parse a liveliness key expression into an Entity.
-
-        Format:
-        - Node: @zrm_lv/{domain_id}/{z_id}/NN/{node_name}
-        - Endpoint: @zrm_lv/{domain_id}/{z_id}/{kind}/{node_name}/{topic_name}/{type_name}
-        """
-        parts = ke.split("/")
-        if len(parts) < 5:
-            raise ValueError(f"Invalid liveliness key: {ke}")
-
-        assert parts[0] == ADMIN_SPACE, (
-            f"Invalid admin space in liveliness key: '{ke}'. Expected '{ADMIN_SPACE}' but got '{parts[0]}'"
+    # For endpoints, we need at least 7 parts
+    if len(parts) < 7:
+        raise ValueError(
+            f"Invalid liveliness key '{ke}': endpoint entity requires at least 7 parts, got {len(parts)}"
         )
 
-        try:
-            domain_id = int(parts[1])
-            z_id = parts[2]
-            entity_kind = EntityKind(parts[3])
-            node_name = parts[4].replace("%", "/")
-
-            node = NodeEntity(
-                domain_id=domain_id,
-                z_id=z_id,
-                name=node_name,
-            )
-
-            if entity_kind == EntityKind.NODE:
-                return Entity(node=node)
-
-            # For endpoints, we need at least 7 parts
-            if len(parts) < 7:
-                return None
-
-            topic_name = parts[5].replace("%", "/")
-            type_name = None if parts[6] == "EMPTY" else parts[6].replace("%", "/")
-
-            endpoint = EndpointEntity(
-                node=node,
-                kind=entity_kind,
-                topic=topic_name,
-                type_name=type_name,
-            )
-
-            return Entity(endpoint=endpoint)
-
-        except (ValueError, IndexError):
-            return None
+    topic = parts[5].replace("%", "/")
+    type_name = None if parts[6] == "EMPTY" else parts[6].replace("%", "/")
+    return ParsedEntity(
+        kind=entity_kind, node_name=node_name, topic=topic, type_name=type_name
+    )
 
 
 class GraphData:
@@ -204,45 +182,45 @@ class GraphData:
 
     def __init__(self) -> None:
         """Initialize empty graph data."""
-        self._entities: dict[str, Entity] = {}  # Liveliness key -> parsed entity
-        self._by_topic: dict[str, list[Entity]] = {}  # Topic -> entities
-        self._by_service: dict[str, list[Entity]] = {}  # Service -> entities
-        self._by_node: dict[str, list[Entity]] = {}  # NodeKey -> entities
+        self._entities: dict[str, ParsedEntity] = {}  # Liveliness key -> parsed entity
+        self._by_topic: dict[str, list[str]] = {}  # Topic -> [liveliness keys]
+        self._by_service: dict[str, list[str]] = {}  # Service -> [liveliness keys]
+        self._by_node: dict[str, list[str]] = {}  # Node name -> [liveliness keys]
 
     def insert(self, ke: str) -> None:
-        """Add a new liveliness key and update indexes."""
-        # Parse the entity
-        entity = Entity.from_liveliness_ke(ke)
-        if entity is None:
+        """Add a new liveliness key and update indexes.
+
+        Args:
+            ke: Liveliness key expression to insert
+
+        Note:
+            Silently ignores invalid keys to handle malformed data from network.
+        """
+        try:
+            entity = _parse_lv_key(ke)
+        except ValueError:
+            # Silently ignore invalid keys from network
             return
 
         # Store it
         self._entities[ke] = entity
 
-        # Update indexes
-        endpoint = entity.get_endpoint()
-        if endpoint is not None:
-            # Index endpoint by its node
-            node_key = endpoint.node.key()
-            if node_key not in self._by_node:
-                self._by_node[node_key] = []
-            self._by_node[node_key].append(entity)
+        # Index by node
+        if entity.node_name not in self._by_node:
+            self._by_node[entity.node_name] = []
+        self._by_node[entity.node_name].append(ke)
 
-            # Index by topic or service
-            if endpoint.kind in (EntityKind.PUBLISHER, EntityKind.SUBSCRIBER):
-                if endpoint.topic not in self._by_topic:
-                    self._by_topic[endpoint.topic] = []
-                self._by_topic[endpoint.topic].append(entity)
-            elif endpoint.kind in (EntityKind.SERVICE, EntityKind.CLIENT):
-                if endpoint.topic not in self._by_service:
-                    self._by_service[endpoint.topic] = []
-                self._by_service[endpoint.topic].append(entity)
-        elif entity.node is not None:
-            # Index standalone node entity
-            node_key = entity.node.key()
-            if node_key not in self._by_node:
-                self._by_node[node_key] = []
-            self._by_node[node_key].append(entity)
+        # Index by topic or service for endpoints
+        if entity.kind in (EntityKind.PUBLISHER, EntityKind.SUBSCRIBER):
+            if entity.topic is not None:
+                if entity.topic not in self._by_topic:
+                    self._by_topic[entity.topic] = []
+                self._by_topic[entity.topic].append(ke)
+        elif entity.kind in (EntityKind.SERVICE, EntityKind.CLIENT):
+            if entity.topic is not None:
+                if entity.topic not in self._by_service:
+                    self._by_service[entity.topic] = []
+                self._by_service[entity.topic].append(ke)
 
     def remove(self, ke: str) -> None:
         """Remove a liveliness key and rebuild indexes."""
@@ -257,50 +235,47 @@ class GraphData:
         self._by_service.clear()
         self._by_node.clear()
 
-        for entity in self._entities.values():
-            endpoint = entity.get_endpoint()
-            if endpoint is not None:
-                # Index endpoint by its node
-                node_key = endpoint.node.key()
-                if node_key not in self._by_node:
-                    self._by_node[node_key] = []
-                self._by_node[node_key].append(entity)
+        for key, entity in self._entities.items():
+            # Index by node
+            if entity.node_name not in self._by_node:
+                self._by_node[entity.node_name] = []
+            self._by_node[entity.node_name].append(key)
 
-                # Index by topic or service
-                if endpoint.kind in (EntityKind.PUBLISHER, EntityKind.SUBSCRIBER):
-                    if endpoint.topic not in self._by_topic:
-                        self._by_topic[endpoint.topic] = []
-                    self._by_topic[endpoint.topic].append(entity)
-                elif endpoint.kind in (EntityKind.SERVICE, EntityKind.CLIENT):
-                    if endpoint.topic not in self._by_service:
-                        self._by_service[endpoint.topic] = []
-                    self._by_service[endpoint.topic].append(entity)
-            elif entity.node is not None:
-                # Index standalone node entity
-                node_key = entity.node.key()
-                if node_key not in self._by_node:
-                    self._by_node[node_key] = []
-                self._by_node[node_key].append(entity)
+            # Index by topic or service for endpoints
+            if entity.kind in (EntityKind.PUBLISHER, EntityKind.SUBSCRIBER):
+                if entity.topic is not None:
+                    if entity.topic not in self._by_topic:
+                        self._by_topic[entity.topic] = []
+                    self._by_topic[entity.topic].append(key)
+            elif entity.kind in (EntityKind.SERVICE, EntityKind.CLIENT):
+                if entity.topic is not None:
+                    if entity.topic not in self._by_service:
+                        self._by_service[entity.topic] = []
+                    self._by_service[entity.topic].append(key)
 
-    def visit_by_topic(self, topic: str, callback: Callable[[Entity], None]) -> None:
+    def visit_by_topic(
+        self, topic: str, callback: Callable[[ParsedEntity], None]
+    ) -> None:
         """Visit all entities for a given topic."""
         if topic in self._by_topic:
-            for entity in self._by_topic[topic]:
-                callback(entity)
+            for key in self._by_topic[topic]:
+                callback(self._entities[key])
 
     def visit_by_service(
-        self, service: str, callback: Callable[[Entity], None]
+        self, service: str, callback: Callable[[ParsedEntity], None]
     ) -> None:
         """Visit all entities for a given service."""
         if service in self._by_service:
-            for entity in self._by_service[service]:
-                callback(entity)
+            for key in self._by_service[service]:
+                callback(self._entities[key])
 
-    def visit_by_node(self, node_key: str, callback: Callable[[Entity], None]) -> None:
+    def visit_by_node(
+        self, node_name: str, callback: Callable[[ParsedEntity], None]
+    ) -> None:
         """Visit all entities for a given node."""
-        if node_key in self._by_node:
-            for entity in self._by_node[node_key]:
-                callback(entity)
+        if node_name in self._by_node:
+            for key in self._by_node[node_name]:
+                callback(self._entities[key])
 
 
 def get_type_name(msg_or_type) -> str:
@@ -352,7 +327,7 @@ class Publisher:
     def __init__(
         self,
         context: Context,
-        node_entity: NodeEntity,
+        liveliness_key: str,
         topic: str,
         msg_type: type[Message],
     ):
@@ -360,7 +335,7 @@ class Publisher:
 
         Args:
             context: Context containing the Zenoh session
-            node_entity: Node entity for graph registration
+            liveliness_key: Liveliness key for graph discovery
             topic: Zenoh key expression (e.g., "robot/pose")
             msg_type: Protobuf message type
         """
@@ -370,15 +345,7 @@ class Publisher:
         self._publisher = self._session.declare_publisher(topic)
 
         # Declare liveliness token for graph discovery
-        endpoint = EndpointEntity(
-            node=node_entity,
-            kind=EntityKind.PUBLISHER,
-            topic=topic,
-            type_name=get_type_name(msg_type),
-        )
-        self._lv_token = self._session.liveliness().declare_token(
-            endpoint.to_liveliness_ke()
-        )
+        self._lv_token = self._session.liveliness().declare_token(liveliness_key)
 
     def publish(self, msg: Message) -> None:
         """Publish a protobuf message.
@@ -416,7 +383,7 @@ class Subscriber:
     def __init__(
         self,
         context: Context,
-        node_entity: NodeEntity,
+        liveliness_key: str,
         topic: str,
         msg_type: type[Message],
         callback: Callable[[Message], None] | None = None,
@@ -425,7 +392,7 @@ class Subscriber:
 
         Args:
             context: Context containing the Zenoh session
-            node_entity: Node entity for graph registration
+            liveliness_key: Liveliness key for graph discovery
             topic: Zenoh key expression (e.g., "robot/pose", "robot/*")
             msg_type: Protobuf message type
             callback: Optional callback function called on each message
@@ -460,15 +427,7 @@ class Subscriber:
         self._subscriber = self._session.declare_subscriber(topic, listener)
 
         # Declare liveliness token for graph discovery
-        endpoint = EndpointEntity(
-            node=node_entity,
-            kind=EntityKind.SUBSCRIBER,
-            topic=topic,
-            type_name=get_type_name(msg_type),
-        )
-        self._lv_token = self._session.liveliness().declare_token(
-            endpoint.to_liveliness_ke()
-        )
+        self._lv_token = self._session.liveliness().declare_token(liveliness_key)
 
     def latest(self) -> Message | None:
         """Get the most recent message received.
@@ -496,7 +455,7 @@ class ServiceServer:
     def __init__(
         self,
         context: Context,
-        node_entity: NodeEntity,
+        liveliness_key: str,
         service: str,
         service_type: type[Message],
         callback: Callable[[Message], Message],
@@ -505,7 +464,7 @@ class ServiceServer:
 
         Args:
             context: Context containing the Zenoh session
-            node_entity: Node entity for graph registration
+            liveliness_key: Liveliness key for graph discovery
             service: Service name (e.g., "compute_trajectory")
             service_type: Protobuf service message type with nested Request and Response
             callback: Function that takes request and returns response
@@ -579,15 +538,7 @@ class ServiceServer:
         self._queryable = self._session.declare_queryable(service, queryable_handler)
 
         # Declare liveliness token for graph discovery
-        endpoint = EndpointEntity(
-            node=node_entity,
-            kind=EntityKind.SERVICE,
-            topic=service,
-            type_name=get_type_name(request_type),
-        )
-        self._lv_token = self._session.liveliness().declare_token(
-            endpoint.to_liveliness_ke()
-        )
+        self._lv_token = self._session.liveliness().declare_token(liveliness_key)
 
     def close(self) -> None:
         """Close the service server and release resources."""
@@ -604,7 +555,7 @@ class ServiceClient:
     def __init__(
         self,
         context: Context,
-        node_entity: NodeEntity,
+        liveliness_key: str,
         service: str,
         service_type: type[Message],
     ):
@@ -612,7 +563,7 @@ class ServiceClient:
 
         Args:
             context: Context containing the Zenoh session
-            node_entity: Node entity for graph registration
+            liveliness_key: Liveliness key for graph discovery
             service: Service name
             service_type: Protobuf service message type with nested Request and Response
 
@@ -648,15 +599,7 @@ class ServiceClient:
         # self._querier = self._session.declare_querier(service)
 
         # Declare liveliness token for graph discovery
-        endpoint = EndpointEntity(
-            node=node_entity,
-            kind=EntityKind.CLIENT,
-            topic=service,
-            type_name=get_type_name(request_type),
-        )
-        self._lv_token = self._session.liveliness().declare_token(
-            endpoint.to_liveliness_ke()
-        )
+        self._lv_token = self._session.liveliness().declare_token(liveliness_key)
 
     def call(
         self,
@@ -790,9 +733,9 @@ class Graph:
 
         total = 0
 
-        def counter(entity: Entity) -> None:
+        def counter(entity: ParsedEntity) -> None:
             nonlocal total
-            if entity.kind() == kind:
+            if entity.kind == kind:
                 total += 1
 
         with self._lock:
@@ -803,7 +746,7 @@ class Graph:
 
         return total
 
-    def get_entities_by_topic(self, kind: EntityKind, topic: str) -> list[Entity]:
+    def get_entities_by_topic(self, kind: EntityKind, topic: str) -> list[ParsedEntity]:
         """Get all entities of a given kind on a topic.
 
         Args:
@@ -816,10 +759,10 @@ class Graph:
         if kind not in (EntityKind.PUBLISHER, EntityKind.SUBSCRIBER):
             raise ValueError("kind must be PUBLISHER or SUBSCRIBER")
 
-        results: list[Entity] = []
+        results: list[ParsedEntity] = []
 
-        def collector(entity: Entity) -> None:
-            if entity.kind() == kind:
+        def collector(entity: ParsedEntity) -> None:
+            if entity.kind == kind:
                 results.append(entity)
 
         with self._lock:
@@ -827,7 +770,9 @@ class Graph:
 
         return results
 
-    def get_entities_by_service(self, kind: EntityKind, service: str) -> list[Entity]:
+    def get_entities_by_service(
+        self, kind: EntityKind, service: str
+    ) -> list[ParsedEntity]:
         """Get all entities of a given kind for a service.
 
         Args:
@@ -840,10 +785,10 @@ class Graph:
         if kind not in (EntityKind.SERVICE, EntityKind.CLIENT):
             raise ValueError("kind must be SERVICE or CLIENT")
 
-        results: list[Entity] = []
+        results: list[ParsedEntity] = []
 
-        def collector(entity: Entity) -> None:
-            if entity.kind() == kind:
+        def collector(entity: ParsedEntity) -> None:
+            if entity.kind == kind:
                 results.append(entity)
 
         with self._lock:
@@ -852,13 +797,13 @@ class Graph:
         return results
 
     def get_entities_by_node(
-        self, kind: EntityKind, node_key: str
-    ) -> list[EndpointEntity]:
+        self, kind: EntityKind, node_name: str
+    ) -> list[ParsedEntity]:
         """Get all endpoint entities of a given kind for a node.
 
         Args:
             kind: Entity kind (must not be NODE)
-            node_key: Node key (node name)
+            node_name: Node name
 
         Returns:
             List of matching endpoint entities
@@ -866,16 +811,14 @@ class Graph:
         if kind == EntityKind.NODE:
             raise ValueError("kind must not be NODE")
 
-        results: list[EndpointEntity] = []
+        results: list[ParsedEntity] = []
 
-        def collector(entity: Entity) -> None:
-            if entity.kind() == kind:
-                endpoint = entity.get_endpoint()
-                if endpoint is not None:
-                    results.append(endpoint)
+        def collector(entity: ParsedEntity) -> None:
+            if entity.kind == kind:
+                results.append(entity)
 
         with self._lock:
-            self._data.visit_by_node(node_key, collector)
+            self._data.visit_by_node(node_name, collector)
 
         return results
 
@@ -885,14 +828,13 @@ class Graph:
         Returns:
             List of node names
         """
-        results: list[str] = []
+        node_names: set[str] = set()
 
         with self._lock:
             for entity in self._data._entities.values():
-                if entity.node is not None:
-                    results.append(entity.node.key())
+                node_names.add(entity.node_name)
 
-        return results
+        return list(node_names)
 
     def get_topic_names_and_types(self) -> list[tuple[str, str]]:
         """Get all topic names and their types in the network.
@@ -903,11 +845,11 @@ class Graph:
         results: dict[str, str] = {}
 
         with self._lock:
-            for topic_name, entities in self._data._by_topic.items():
-                for entity in entities:
-                    endpoint = entity.get_endpoint()
-                    if endpoint is not None and endpoint.type_name is not None:
-                        results[topic_name] = endpoint.type_name
+            for topic_name, keys in self._data._by_topic.items():
+                for key in keys:
+                    entity = self._data._entities[key]
+                    if entity.type_name is not None:
+                        results[topic_name] = entity.type_name
                         break  # One type per topic
 
         return list(results.items())
@@ -921,24 +863,24 @@ class Graph:
         results: dict[str, str] = {}
 
         with self._lock:
-            for service_name, entities in self._data._by_service.items():
-                for entity in entities:
-                    endpoint = entity.get_endpoint()
-                    if endpoint is not None and endpoint.type_name is not None:
-                        results[service_name] = endpoint.type_name
+            for service_name, keys in self._data._by_service.items():
+                for key in keys:
+                    entity = self._data._entities[key]
+                    if entity.type_name is not None:
+                        results[service_name] = entity.type_name
                         break  # One type per service
 
         return list(results.items())
 
     def get_names_and_types_by_node(
         self,
-        node_key: str,
+        node_name: str,
         kind: EntityKind,
     ) -> list[tuple[str, str]]:
         """Get all topic/service names and types for a given node.
 
         Args:
-            node_key: Node key (node name)
+            node_name: Node name
             kind: Entity kind (PUBLISHER, SUBSCRIBER, SERVICE, or CLIENT)
 
         Returns:
@@ -949,14 +891,16 @@ class Graph:
 
         results: list[tuple[str, str]] = []
 
-        def collector(entity: Entity) -> None:
-            if entity.kind() == kind:
-                endpoint = entity.get_endpoint()
-                if endpoint is not None and endpoint.type_name is not None:
-                    results.append((endpoint.topic, endpoint.type_name))
+        def collector(entity: ParsedEntity) -> None:
+            if (
+                entity.kind == kind
+                and entity.topic is not None
+                and entity.type_name is not None
+            ):
+                results.append((entity.topic, entity.type_name))
 
         with self._lock:
-            self._data.visit_by_node(node_key, collector)
+            self._data.visit_by_node(node_name, collector)
 
         return results
 
@@ -985,18 +929,15 @@ class Node:
             context: Context to use (defaults to global context via _get_context())
         """
         self._context = context if context is not None else _get_context()
-
-        # Create node entity
-        self._entity = NodeEntity(
-            domain_id=self._context.domain_id,
-            z_id=str(self._context.session.info.zid()),
-            name=name,
-        )
+        self._name = name
+        self._domain_id = self._context.domain_id
+        self._z_id = str(self._context.session.info.zid())
 
         # Declare liveliness token for node presence
-        self._lv_token = self._context.session.liveliness().declare_token(
-            self._entity.to_liveliness_ke()
+        lv_key = _make_node_lv_key(
+            domain_id=self._domain_id, z_id=self._z_id, name=name
         )
+        self._lv_token = self._context.session.liveliness().declare_token(lv_key)
 
         # Create graph for discovery
         self.graph = Graph(self._context.session, domain_id=self._context.domain_id)
@@ -1004,7 +945,7 @@ class Node:
     @property
     def name(self) -> str:
         """Get node name."""
-        return self._entity.name
+        return self._name
 
     def create_publisher(self, topic: str, msg_type: type[Message]) -> "Publisher":
         """Create a publisher for this node.
@@ -1016,7 +957,15 @@ class Node:
         Returns:
             Publisher instance
         """
-        return Publisher(self._context, self._entity, topic, msg_type)
+        lv_key = _make_endpoint_lv_key(
+            domain_id=self._domain_id,
+            z_id=self._z_id,
+            kind=EntityKind.PUBLISHER,
+            node_name=self._name,
+            topic=topic,
+            type_name=get_type_name(msg_type),
+        )
+        return Publisher(self._context, lv_key, topic, msg_type)
 
     def create_subscriber(
         self,
@@ -1034,7 +983,15 @@ class Node:
         Returns:
             Subscriber instance
         """
-        return Subscriber(self._context, self._entity, topic, msg_type, callback)
+        lv_key = _make_endpoint_lv_key(
+            domain_id=self._domain_id,
+            z_id=self._z_id,
+            kind=EntityKind.SUBSCRIBER,
+            node_name=self._name,
+            topic=topic,
+            type_name=get_type_name(msg_type),
+        )
+        return Subscriber(self._context, lv_key, topic, msg_type, callback)
 
     def create_service(
         self,
@@ -1052,9 +1009,16 @@ class Node:
         Returns:
             ServiceServer instance
         """
-        return ServiceServer(
-            self._context, self._entity, service, service_type, callback
+        request_type = getattr(service_type, "Request", None)
+        lv_key = _make_endpoint_lv_key(
+            domain_id=self._domain_id,
+            z_id=self._z_id,
+            kind=EntityKind.SERVICE,
+            node_name=self._name,
+            topic=service,
+            type_name=get_type_name(request_type) if request_type else None,
         )
+        return ServiceServer(self._context, lv_key, service, service_type, callback)
 
     def create_client(
         self,
@@ -1070,7 +1034,16 @@ class Node:
         Returns:
             ServiceClient instance
         """
-        return ServiceClient(self._context, self._entity, service, service_type)
+        request_type = getattr(service_type, "Request", None)
+        lv_key = _make_endpoint_lv_key(
+            domain_id=self._domain_id,
+            z_id=self._z_id,
+            kind=EntityKind.CLIENT,
+            node_name=self._name,
+            topic=service,
+            type_name=get_type_name(request_type) if request_type else None,
+        )
+        return ServiceClient(self._context, lv_key, service, service_type)
 
     def close(self) -> None:
         """Close the node and release all resources."""

@@ -24,6 +24,26 @@ cd zrm
 uv sync
 ```
 
+## Development
+
+### Linting
+
+Run linting and formatting checks using pre-commit:
+
+```bash
+uv run pre-commit run -a
+```
+
+This runs all configured linters and formatters on all files in the repository.
+
+### Testing
+
+Run the test suite with pytest:
+
+```bash
+uv run pytest tests/ -v
+```
+
 ## Quick Start
 
 ### Publisher/Subscriber
