@@ -150,11 +150,11 @@ ZRM uses protobuf for all message serialization. Standard message definitions ar
 ### Generating Python Code
 
 ```bash
-# Generate Python code from proto files
+# To make sure protoc generate the files with the correct import paths
 ./protoc-33.0-linux-x86_64/bin/protoc \
-  --pyi_out=src/zrm/generated_protos \
-  --python_out=src/zrm/generated_protos \
-  -Iproto \
+  --pyi_out=src \
+  --python_out=src \
+  --proto_path=zrm/generated_protos=proto \
   $(fd --extension proto)
 ```
 
