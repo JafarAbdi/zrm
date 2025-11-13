@@ -165,7 +165,7 @@ src/zrm/
 │   └── header_pb2.py
 └── srvs/                  # Generated service modules
     ├── std_pb2.py
-    └── examples.py
+    └── examples_pb2.py
 ```
 
 ### Generating Python Code
