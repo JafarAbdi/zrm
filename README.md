@@ -145,20 +145,19 @@ message AddTwoInts {
 
 ## Message Organization
 
-ZRM uses a convention-based message organization inspired by ROS2:
+ZRM uses a convention-based message organization:
 
 ### Directory Structure
 
 ```
 proto/
-├── zrm/
-│   ├── msgs/              # Message definitions
-│   │   ├── geometry.proto
-│   │   ├── sensor.proto
-│   │   └── header.proto
-│   └── srvs/              # Service definitions
-│       ├── services.proto
-│       └── example_services.proto
+├── msgs/              # Message definitions
+│   ├── geometry.proto
+│   ├── sensor.proto
+│   └── header.proto
+└── srvs/              # Service definitions
+    ├── services.proto
+    └── example_services.proto
 src/zrm/
 ├── msgs/                  # Generated message modules
 │   ├── geometry_pb2.py
@@ -167,30 +166,6 @@ src/zrm/
 └── srvs/                  # Generated service modules
     ├── services_pb2.py
     └── example_services_pb2.py
-```
-
-### Message Type Identifiers
-
-Each message type has a unique identifier in the format: `package/category/module/Type`
-
-Examples:
-- `zrm/msgs/geometry/Point`
-- `zrm/msgs/geometry/Pose2D`
-- `zrm/srvs/services/Trigger.Request`
-
-### Dynamic Message Import
-
-```python
-from zrm import get_message_type, get_type_name
-
-# Import a message type by identifier
-Point = get_message_type('zrm/msgs/geometry/Point')
-point = Point(x=1.0, y=2.0, z=3.0)
-
-# Get identifier from a message instance or type
-from zrm.msgs import geometry_pb2
-identifier = get_type_name(geometry_pb2.Point)
-# Returns: 'zrm/msgs/geometry/Point'
 ```
 
 ### Generating Python Code
