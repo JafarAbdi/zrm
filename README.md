@@ -3,6 +3,8 @@
 
 A minimal, single-file communication middleware built on Zenoh, providing a clean and simple API inspired by ROS2 patterns.
 
+https://github.com/user-attachments/assets/3e41d9a7-f553-457b-a879-cae2af45bf63
+
 ## Features
 
 - **Minimalist**: [Single-file implementation](src/zrm/__init__.py)
