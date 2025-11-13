@@ -95,11 +95,11 @@ Services use namespaced Request/Response messages for better organization:
 
 ```python
 from zrm import Node
-from zrm.srvs import example_services_pb2
+from zrm.srvs import examples_pb2
 
 # Define service handler
 def add_callback(req):
-    return example_services_pb2.AddTwoInts.Response(sum=req.a + req.b)
+    return examples_pb2.AddTwoInts.Response(sum=req.a + req.b)
 
 # Create node
 node = Node("service_node")
@@ -107,18 +107,18 @@ node = Node("service_node")
 # Create service server via node factory method
 server = node.create_service(
     service="add_two_ints",
-    service_type=example_services_pb2.AddTwoInts,
+    service_type=examples_pb2.AddTwoInts,
     callback=add_callback,
 )
 
 # Create service client via node factory method
 client = node.create_client(
     service="add_two_ints",
-    service_type=example_services_pb2.AddTwoInts,
+    service_type=examples_pb2.AddTwoInts,
 )
 
 # Call service
-request = example_services_pb2.AddTwoInts.Request(a=5, b=3)
+request = examples_pb2.AddTwoInts.Request(a=5, b=3)
 response = client.call(request)
 print(f"Sum: {response.sum}")  # Output: 8
 
@@ -156,16 +156,16 @@ proto/
 │   ├── sensor.proto
 │   └── header.proto
 └── srvs/              # Service definitions
-    ├── services.proto
-    └── example_services.proto
+    ├── std.proto
+    └── examples.proto
 src/zrm/
 ├── msgs/                  # Generated message modules
 │   ├── geometry_pb2.py
 │   ├── sensor_pb2.py
 │   └── header_pb2.py
 └── srvs/                  # Generated service modules
-    ├── services_pb2.py
-    └── example_services_pb2.py
+    ├── std_pb2.py
+    └── examples.py
 ```
 
 ### Generating Python Code

@@ -6,7 +6,7 @@ import time
 
 
 import zrm
-from zrm.srvs import example_services_pb2
+from zrm.srvs import examples_pb2
 from zrm.msgs import geometry_pb2
 
 
@@ -74,11 +74,11 @@ def test_node_create_service(global_context):
     node = zrm.Node("test_node")
 
     def handler(req):
-        return example_services_pb2.AddTwoInts.Response(sum=req.a + req.b)
+        return examples_pb2.AddTwoInts.Response(sum=req.a + req.b)
 
     server = node.create_service(
         "add_service",
-        example_services_pb2.AddTwoInts,
+        examples_pb2.AddTwoInts,
         handler,
     )
 
@@ -93,7 +93,7 @@ def test_node_create_client(global_context):
     """Test creating a service client from node."""
     node = zrm.Node("test_node")
 
-    client = node.create_client("add_service", example_services_pb2.AddTwoInts)
+    client = node.create_client("add_service", examples_pb2.AddTwoInts)
 
     assert client is not None
     assert isinstance(client, zrm.ServiceClient)
@@ -132,16 +132,16 @@ def test_node_full_service_workflow():
     node = zrm.Node("test_node")
 
     def handler(req):
-        return example_services_pb2.AddTwoInts.Response(sum=req.a + req.b)
+        return examples_pb2.AddTwoInts.Response(sum=req.a + req.b)
 
     server = node.create_service(
-        "add_service", example_services_pb2.AddTwoInts, handler
+        "add_service", examples_pb2.AddTwoInts, handler
     )
     time.sleep(0.2)
 
-    client = node.create_client("add_service", example_services_pb2.AddTwoInts)
+    client = node.create_client("add_service", examples_pb2.AddTwoInts)
 
-    request = example_services_pb2.AddTwoInts.Request(a=10, b=20)
+    request = examples_pb2.AddTwoInts.Request(a=10, b=20)
     response = client.call(request, timeout=2.0)
 
     assert response.sum == 30
@@ -226,10 +226,10 @@ def test_node_mixed_entities():
     sub = node.create_subscriber("topic2", geometry_pb2.Point)
 
     def handler(req):
-        return example_services_pb2.AddTwoInts.Response(sum=req.a + req.b)
+        return examples_pb2.AddTwoInts.Response(sum=req.a + req.b)
 
-    server = node.create_service("service1", example_services_pb2.AddTwoInts, handler)
-    client = node.create_client("service2", example_services_pb2.AddTwoInts)
+    server = node.create_service("service1", examples_pb2.AddTwoInts, handler)
+    client = node.create_client("service2", examples_pb2.AddTwoInts)
 
     # All should be created successfully
     assert pub is not None

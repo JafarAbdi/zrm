@@ -286,15 +286,15 @@ def get_type_name(msg_or_type) -> str:
         msg_or_type: Protobuf message instance or class
 
     Returns:
-        Type identifier string like 'zrm/msgs/geometry/Point' or 'zrm/srvs/services/Trigger.Request'
+        Type identifier string like 'zrm/msgs/geometry/Point' or 'zrm/srvs/std/Trigger.Request'
 
     Examples:
         >>> from zrm.msgs import geometry_pb2
         >>> get_type_name(geometry_pb2.Point)
         'zrm/msgs/geometry/Point'
-        >>> from zrm.srvs import services_pb2
-        >>> get_type_name(services_pb2.Trigger.Request)
-        'zrm/srvs/services/Trigger.Request'
+        >>> from zrm.srvs import std_pb2
+        >>> get_type_name(std_pb2.Trigger.Request)
+        'zrm/srvs/std/Trigger.Request'
     """
 
     # file.name: "zrm/msgs/geometry.proto"
@@ -321,7 +321,7 @@ def get_message_type(identifier: str) -> type[Message]:
     """Get message type from identifier string.
 
     Args:
-        identifier: Type identifier like 'zrm/msgs/geometry/Point' or 'zrm/srvs/services/Trigger.Request'
+        identifier: Type identifier like 'zrm/msgs/geometry/Point' or 'zrm/srvs/std/Trigger.Request'
 
     Returns:
         Protobuf message class
@@ -329,7 +329,7 @@ def get_message_type(identifier: str) -> type[Message]:
     Examples:
         >>> Point = get_message_type('zrm/msgs/geometry/Point')
         >>> point = Point(x=1.0, y=2.0, z=3.0)
-        >>> TriggerRequest = get_message_type('zrm/srvs/services/Trigger.Request')
+        >>> TriggerRequest = get_message_type('zrm/srvs/std/Trigger.Request')
     """
     parts = identifier.split("/")
     if len(parts) != 4:

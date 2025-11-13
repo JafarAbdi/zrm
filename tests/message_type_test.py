@@ -6,7 +6,7 @@ import pytest
 
 import zrm
 from zrm.msgs import geometry_pb2
-from zrm.srvs import services_pb2
+from zrm.srvs import std_pb2
 
 
 def test_get_type_name_from_message_instance():
@@ -24,17 +24,17 @@ def test_get_type_name_from_message_type():
 
 def test_get_type_name_from_service_type():
     """Test get_type_name with a service type."""
-    type_name = zrm.get_type_name(services_pb2.Trigger)
-    assert type_name == "zrm/srvs/services/Trigger"
+    type_name = zrm.get_type_name(std_pb2.Trigger)
+    assert type_name == "zrm/srvs/std/Trigger"
 
 
 def test_get_type_name_from_nested_service_message():
     """Test get_type_name with nested service Request/Response."""
-    request_type_name = zrm.get_type_name(services_pb2.Trigger.Request)
-    assert request_type_name == "zrm/srvs/services/Trigger.Request"
+    request_type_name = zrm.get_type_name(std_pb2.Trigger.Request)
+    assert request_type_name == "zrm/srvs/std/Trigger.Request"
 
-    response_type_name = zrm.get_type_name(services_pb2.Trigger.Response)
-    assert response_type_name == "zrm/srvs/services/Trigger.Response"
+    response_type_name = zrm.get_type_name(std_pb2.Trigger.Response)
+    assert response_type_name == "zrm/srvs/std/Trigger.Response"
 
 
 def test_get_message_type_simple_message():
@@ -51,17 +51,17 @@ def test_get_message_type_simple_message():
 
 def test_get_message_type_service():
     """Test get_message_type with a service type."""
-    Trigger = zrm.get_message_type("zrm/srvs/services/Trigger")
-    assert Trigger is services_pb2.Trigger
+    Trigger = zrm.get_message_type("zrm/srvs/std/Trigger")
+    assert Trigger is std_pb2.Trigger
 
 
 def test_get_message_type_nested_service_message():
     """Test get_message_type with nested service messages."""
-    TriggerRequest = zrm.get_message_type("zrm/srvs/services/Trigger.Request")
-    assert TriggerRequest is services_pb2.Trigger.Request
+    TriggerRequest = zrm.get_message_type("zrm/srvs/std/Trigger.Request")
+    assert TriggerRequest is std_pb2.Trigger.Request
 
-    TriggerResponse = zrm.get_message_type("zrm/srvs/services/Trigger.Response")
-    assert TriggerResponse is services_pb2.Trigger.Response
+    TriggerResponse = zrm.get_message_type("zrm/srvs/std/Trigger.Response")
+    assert TriggerResponse is std_pb2.Trigger.Response
 
     # Verify we can create instances
     request = TriggerRequest()
@@ -114,11 +114,11 @@ def test_roundtrip_message():
 def test_roundtrip_service():
     """Test roundtrip: type -> identifier -> type for services."""
     # Start with nested service type
-    original_type = services_pb2.Trigger.Request
+    original_type = std_pb2.Trigger.Request
 
     # Get identifier
     identifier = zrm.get_type_name(original_type)
-    assert identifier == "zrm/srvs/services/Trigger.Request"
+    assert identifier == "zrm/srvs/std/Trigger.Request"
 
     # Get type back
     retrieved_type = zrm.get_message_type(identifier)

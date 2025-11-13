@@ -7,7 +7,7 @@ import time
 
 
 import zrm
-from zrm.srvs import example_services_pb2
+from zrm.srvs import examples_pb2
 from zrm.msgs import geometry_pb2
 
 
@@ -50,16 +50,16 @@ def test_multi_node_service():
     node_client = zrm.Node("client_node")
 
     def handler(req):
-        return example_services_pb2.AddTwoInts.Response(sum=req.a + req.b)
+        return examples_pb2.AddTwoInts.Response(sum=req.a + req.b)
 
     server = node_server.create_service(
-        "compute", example_services_pb2.AddTwoInts, handler
+        "compute", examples_pb2.AddTwoInts, handler
     )
     time.sleep(0.2)
 
-    client = node_client.create_client("compute", example_services_pb2.AddTwoInts)
+    client = node_client.create_client("compute", examples_pb2.AddTwoInts)
 
-    request = example_services_pb2.AddTwoInts.Request(a=100, b=200)
+    request = examples_pb2.AddTwoInts.Request(a=100, b=200)
     response = client.call(request, timeout=2.0)
 
     assert response.sum == 300
@@ -120,19 +120,19 @@ def test_concurrent_service_calls():
         nonlocal call_count
         call_count += 1
         time.sleep(0.1)  # Simulate work
-        return example_services_pb2.AddTwoInts.Response(sum=req.a + req.b)
+        return examples_pb2.AddTwoInts.Response(sum=req.a + req.b)
 
-    server = node.create_service("compute", example_services_pb2.AddTwoInts, handler)
+    server = node.create_service("compute", examples_pb2.AddTwoInts, handler)
     time.sleep(0.2)
 
-    client = node.create_client("compute", example_services_pb2.AddTwoInts)
+    client = node.create_client("compute", examples_pb2.AddTwoInts)
 
     results = []
     errors = []
 
     def make_call(a, b):
         try:
-            request = example_services_pb2.AddTwoInts.Request(a=a, b=b)
+            request = examples_pb2.AddTwoInts.Request(a=a, b=b)
             response = client.call(request, timeout=5.0)
             results.append(response.sum)
         except Exception as e:
@@ -205,9 +205,9 @@ def test_graph_discovery_across_nodes():
     sub2 = node2.create_subscriber("topic1", geometry_pb2.Pose)
 
     def handler(req):
-        return example_services_pb2.AddTwoInts.Response(sum=req.a + req.b)
+        return examples_pb2.AddTwoInts.Response(sum=req.a + req.b)
 
-    server3 = node3.create_service("service1", example_services_pb2.AddTwoInts, handler)
+    server3 = node3.create_service("service1", examples_pb2.AddTwoInts, handler)
     time.sleep(0.5)
 
     # All nodes should see all entities through their graphs
@@ -264,22 +264,22 @@ def test_complex_workflow_with_chained_services():
 
     # Service that adds two numbers
     def add_handler(req):
-        return example_services_pb2.AddTwoInts.Response(sum=req.a + req.b)
+        return examples_pb2.AddTwoInts.Response(sum=req.a + req.b)
 
-    server = node.create_service("add", example_services_pb2.AddTwoInts, add_handler)
+    server = node.create_service("add", examples_pb2.AddTwoInts, add_handler)
     time.sleep(0.2)
 
-    client = node.create_client("add", example_services_pb2.AddTwoInts)
+    client = node.create_client("add", examples_pb2.AddTwoInts)
 
     # Make chained calls
     result1 = client.call(
-        example_services_pb2.AddTwoInts.Request(a=1, b=2), timeout=2.0
+        examples_pb2.AddTwoInts.Request(a=1, b=2), timeout=2.0
     )
     result2 = client.call(
-        example_services_pb2.AddTwoInts.Request(a=result1.sum, b=3), timeout=2.0
+        examples_pb2.AddTwoInts.Request(a=result1.sum, b=3), timeout=2.0
     )
     result3 = client.call(
-        example_services_pb2.AddTwoInts.Request(a=result2.sum, b=4), timeout=2.0
+        examples_pb2.AddTwoInts.Request(a=result2.sum, b=4), timeout=2.0
     )
 
     # 1 + 2 = 3, 3 + 3 = 6, 6 + 4 = 10
