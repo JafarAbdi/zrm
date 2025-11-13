@@ -4,7 +4,7 @@ version         = "1.1.0"
 description     = "Add your description here"
 readme          = "README.md"
 authors         = [{ name = "JafarAbdi", email = "jafar.uruc@gmail.com" }]
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 dependencies    = ["eclipse-zenoh>=1.6.2", "protobuf>=6.33.0"]
 
 [dependency-groups]
