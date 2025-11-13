@@ -888,12 +888,12 @@ class Node:
         """
         self._context = context if context is not None else _get_context()
         self._name = name
-        self._domain_id = self._context.domain_id
-        self._z_id = str(self._context.session.info.zid())
 
         # Declare liveliness token for node presence
         lv_key = _make_node_lv_key(
-            domain_id=self._domain_id, z_id=self._z_id, name=name
+            domain_id=self._context.domain_id,
+            z_id=str(self._context.session.info.zid()),
+            name=name,
         )
         self._lv_token = self._context.session.liveliness().declare_token(lv_key)
 
@@ -916,8 +916,8 @@ class Node:
             Publisher instance
         """
         lv_key = _make_endpoint_lv_key(
-            domain_id=self._domain_id,
-            z_id=self._z_id,
+            domain_id=self._context.domain_id,
+            z_id=str(self._context.session.info.zid()),
             kind=EntityKind.PUBLISHER,
             node_name=self._name,
             topic=topic,
@@ -942,8 +942,8 @@ class Node:
             Subscriber instance
         """
         lv_key = _make_endpoint_lv_key(
-            domain_id=self._domain_id,
-            z_id=self._z_id,
+            domain_id=self._context.domain_id,
+            z_id=str(self._context.session.info.zid()),
             kind=EntityKind.SUBSCRIBER,
             node_name=self._name,
             topic=topic,
@@ -987,8 +987,8 @@ class Node:
             )
 
         lv_key = _make_endpoint_lv_key(
-            domain_id=self._domain_id,
-            z_id=self._z_id,
+            domain_id=self._context.domain_id,
+            z_id=str(self._context.session.info.zid()),
             kind=EntityKind.SERVICE,
             node_name=self._name,
             topic=service,
@@ -1030,8 +1030,8 @@ class Node:
             )
 
         lv_key = _make_endpoint_lv_key(
-            domain_id=self._domain_id,
-            z_id=self._z_id,
+            domain_id=self._context.domain_id,
+            z_id=str(self._context.session.info.zid()),
             kind=EntityKind.CLIENT,
             node_name=self._name,
             topic=service,
