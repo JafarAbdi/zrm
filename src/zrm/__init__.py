@@ -520,6 +520,31 @@ class Publisher:
         attachment = zenoh.ZBytes(type_name.encode())
         self._publisher.put(serialize(msg), attachment=attachment)
 
+    def wait_for_subscriber(self, timeout: float | None = None) -> bool:
+        """Wait until this publisher has at least one matching subscriber.
+
+        Args:
+            timeout: Maximum time to wait in seconds (None = wait forever)
+
+        Returns:
+            True if matched, False if timeout occurred
+        """
+        matching_event = threading.Event()
+
+        def on_matching_status(status: zenoh.MatchingStatus) -> None:
+            if status.matching:
+                matching_event.set()
+            else:
+                matching_event.clear()
+
+        matching_listener = self._publisher.declare_matching_listener(
+            on_matching_status
+        )
+
+        matching = matching_event.wait(timeout)
+        matching_listener.undeclare()
+        return matching
+
     def close(self) -> None:
         """Close the publisher and release resources."""
         self._lv_token.undeclare()

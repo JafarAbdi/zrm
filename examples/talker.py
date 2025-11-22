@@ -15,6 +15,16 @@ def main():
 
     # Create publisher via node factory method
     pub = node.create_publisher("robot/pose", geometry_msgs.Pose2D)
+
+    def cleanup():
+        pub.close()
+        node.close()
+        zrm.shutdown()
+
+    if not pub.wait_for_subscriber(timeout=5.0):
+        print("No subscribers connected within timeout period.")
+        cleanup()
+        return
     print("Publisher started on topic 'robot/pose'")
 
     # Publish messages in a loop
@@ -38,9 +48,7 @@ def main():
     except KeyboardInterrupt:
         print("Shutting down...")
     finally:
-        pub.close()
-        node.close()
-        zrm.shutdown()
+        cleanup()
 
 
 if __name__ == "__main__":
