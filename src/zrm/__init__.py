@@ -483,6 +483,7 @@ class Publisher:
         liveliness_key: str,
         topic: str,
         msg_type: type[Message],
+        graph: "Graph",
     ):
         """Create a publisher.
 
@@ -491,10 +492,12 @@ class Publisher:
             liveliness_key: Liveliness key for graph discovery
             topic: Zenoh key expression (e.g., "robot/pose")
             msg_type: Protobuf message type
+            graph: Graph instance for discovery operations
         """
         self._topic = clean_topic_name(topic)
         self._msg_type = msg_type
         self._session = context.session
+        self._graph = graph
         self._publisher = self._session.declare_publisher(self._topic)
 
         # Declare liveliness token for graph discovery
@@ -520,6 +523,17 @@ class Publisher:
         attachment = zenoh.ZBytes(type_name.encode())
         self._publisher.put(serialize(msg), attachment=attachment)
 
+    def wait_for_subscribers(self, timeout: float | None = None) -> bool:
+        """Wait until at least one subscriber is listening on this topic.
+
+        Args:
+            timeout: Maximum time to wait in seconds, or None for no timeout
+
+        Returns:
+            True if the condition was met, False if timeout occurred
+        """
+        return self._graph.wait_for(EntityKind.SUBSCRIBER, self._topic, timeout)
+
     def close(self) -> None:
         """Close the publisher and release resources."""
         self._lv_token.undeclare()
@@ -539,6 +553,7 @@ class Subscriber:
         liveliness_key: str,
         topic: str,
         msg_type: type[Message],
+        graph: "Graph",
         callback: Callable[[Message], None] | None = None,
     ):
         """Create a subscriber.
@@ -548,10 +563,12 @@ class Subscriber:
             liveliness_key: Liveliness key for graph discovery
             topic: Zenoh key expression (e.g., "robot/pose")
             msg_type: Protobuf message type
+            graph: Graph instance for discovery operations
             callback: Optional callback function called on each message
         """
         self._topic = clean_topic_name(topic)
         self._msg_type = msg_type
+        self._graph = graph
         self._callback = callback
         self._latest_msg: Message | None = None
         self._lock = threading.Lock()
@@ -593,6 +610,17 @@ class Subscriber:
                 print(f'Warning: No messages received on topic "{self._topic}" yet.')
             return self._latest_msg
 
+    def wait_for_publishers(self, timeout: float | None = None) -> bool:
+        """Wait until at least one publisher is publishing on this topic.
+
+        Args:
+            timeout: Maximum time to wait in seconds, or None for no timeout
+
+        Returns:
+            True if the condition was met, False if timeout occurred
+        """
+        return self._graph.wait_for(EntityKind.PUBLISHER, self._topic, timeout)
+
     def close(self) -> None:
         """Close the subscriber and release resources."""
         self._lv_token.undeclare()
@@ -611,6 +639,7 @@ class ServiceServer:
         liveliness_key: str,
         service: str,
         service_type: type[Message],
+        graph: "Graph",
         callback: Callable[[Message], Message],
     ):
         """Create a service server.
@@ -620,11 +649,13 @@ class ServiceServer:
             liveliness_key: Liveliness key for graph discovery
             service: Service name (e.g., "compute_trajectory")
             service_type: Protobuf service message type with nested Request and Response
+            graph: Graph instance for discovery operations
             callback: Function that takes request and returns response
         """
         self._service = clean_topic_name(service)
         self._request_type = service_type.Request
         self._response_type = service_type.Response
+        self._graph = graph
         self._callback = callback
 
         self._session = context.session
@@ -676,6 +707,17 @@ class ServiceServer:
         # Declare liveliness token for graph discovery
         self._lv_token = self._session.liveliness().declare_token(liveliness_key)
 
+    def wait_for_clients(self, timeout: float | None = None) -> bool:
+        """Wait until at least one client is connected to this service.
+
+        Args:
+            timeout: Maximum time to wait in seconds, or None for no timeout
+
+        Returns:
+            True if the condition was met, False if timeout occurred
+        """
+        return self._graph.wait_for(EntityKind.CLIENT, self._service, timeout)
+
     def close(self) -> None:
         """Close the service server and release resources."""
         self._lv_token.undeclare()
@@ -694,6 +736,7 @@ class ServiceClient:
         liveliness_key: str,
         service: str,
         service_type: type[Message],
+        graph: "Graph",
     ):
         """Create a service client.
 
@@ -702,10 +745,12 @@ class ServiceClient:
             liveliness_key: Liveliness key for graph discovery
             service: Service name
             service_type: Protobuf service message type with nested Request and Response
+            graph: Graph instance for discovery operations
         """
         self._service = clean_topic_name(service)
         self._request_type = service_type.Request
         self._response_type = service_type.Response
+        self._graph = graph
 
         self._session = context.session
 
@@ -781,6 +826,17 @@ class ServiceClient:
             f"Service '{self._service}' did not respond within {timeout} seconds",
         )
 
+    def wait_for_service(self, timeout: float | None = None) -> bool:
+        """Wait until the service is available.
+
+        Args:
+            timeout: Maximum time to wait in seconds, or None for no timeout
+
+        Returns:
+            True if the service is available, False if timeout occurred
+        """
+        return self._graph.wait_for(EntityKind.SERVICE, self._service, timeout)
+
     def close(self) -> None:
         """Close the service client and release resources."""
         # TODO: Uncomment when querier is supports passing a timeout in get()
@@ -804,17 +860,18 @@ class Graph:
         """
         self._domain_id = domain_id
         self._data = GraphData()
-        self._lock = threading.Lock()
+        self._condition = threading.Condition()
         self._session = session
 
         # Subscribe to liveliness tokens with history to get existing entities
         def liveliness_callback(sample: zenoh.Sample) -> None:
             ke = str(sample.key_expr)
-            with self._lock:
+            with self._condition:
                 if sample.kind == zenoh.SampleKind.PUT:
                     self._data.insert(ke)
                 elif sample.kind == zenoh.SampleKind.DELETE:
                     self._data.remove(ke)
+                self._condition.notify_all()
 
         key_expr = f"{ADMIN_SPACE}/{domain_id}/**"
         # Explicitly call discovery on initialization
@@ -853,7 +910,7 @@ class Graph:
             if entity.kind == kind:
                 total += 1
 
-        with self._lock:
+        with self._condition:
             if kind in (EntityKind.PUBLISHER, EntityKind.SUBSCRIBER):
                 self._data.visit_by_topic(topic, counter)
             elif kind in (EntityKind.SERVICE, EntityKind.CLIENT):
@@ -880,7 +937,7 @@ class Graph:
             if entity.kind == kind:
                 results.append(entity)
 
-        with self._lock:
+        with self._condition:
             self._data.visit_by_topic(topic, collector)
 
         return results
@@ -906,7 +963,7 @@ class Graph:
             if entity.kind == kind:
                 results.append(entity)
 
-        with self._lock:
+        with self._condition:
             self._data.visit_by_service(service, collector)
 
         return results
@@ -932,7 +989,7 @@ class Graph:
             if entity.kind == kind:
                 results.append(entity)
 
-        with self._lock:
+        with self._condition:
             self._data.visit_by_node(node_name, collector)
 
         return results
@@ -945,7 +1002,7 @@ class Graph:
         """
         node_names: set[str] = set()
 
-        with self._lock:
+        with self._condition:
             for entity in self._data._entities.values():
                 node_names.add(entity.node_name)
 
@@ -959,7 +1016,7 @@ class Graph:
         """
         results: dict[str, str] = {}
 
-        with self._lock:
+        with self._condition:
             for topic_name, keys in self._data._by_topic.items():
                 for key in keys:
                     entity = self._data._entities[key]
@@ -977,7 +1034,7 @@ class Graph:
         """
         results: dict[str, str] = {}
 
-        with self._lock:
+        with self._condition:
             for service_name, keys in self._data._by_service.items():
                 for key in keys:
                     entity = self._data._entities[key]
@@ -1014,10 +1071,46 @@ class Graph:
             ):
                 results.append((entity.topic, entity.type_name))
 
-        with self._lock:
+        with self._condition:
             self._data.visit_by_node(node_name, collector)
 
         return results
+
+    def wait_for(
+        self,
+        kind: EntityKind,
+        topic: str,
+        timeout: float | None = None,
+    ) -> bool:
+        """Wait until at least one entity of `kind` exists on `topic`.
+
+        Args:
+            kind: Entity kind (PUBLISHER, SUBSCRIBER, SERVICE, or CLIENT)
+            topic: Topic or service name
+            timeout: Maximum time to wait in seconds, or None for no timeout
+
+        Returns:
+            True if the condition was met, False if timeout occurred
+        """
+        if kind == EntityKind.NODE:
+            raise ValueError(
+                "Cannot wait for NODE entities, use a specific endpoint kind"
+            )
+
+        def predicate() -> bool:
+            if kind in (EntityKind.PUBLISHER, EntityKind.SUBSCRIBER):
+                for key in self._data._by_topic.get(topic, []):
+                    if self._data._entities[key].kind == kind:
+                        return True
+                return False
+            else:  # SERVICE or CLIENT
+                for key in self._data._by_service.get(topic, []):
+                    if self._data._entities[key].kind == kind:
+                        return True
+                return False
+
+        with self._condition:
+            return self._condition.wait_for(predicate, timeout=timeout)
 
     def close(self) -> None:
         """Close the graph and release resources."""
@@ -1081,7 +1174,7 @@ class Node:
             topic=topic,
             type_name=get_type_name(msg_type),
         )
-        return Publisher(self._context, lv_key, topic, msg_type)
+        return Publisher(self._context, lv_key, topic, msg_type, self.graph)
 
     def create_subscriber(
         self,
@@ -1108,7 +1201,7 @@ class Node:
             topic=topic,
             type_name=get_type_name(msg_type),
         )
-        return Subscriber(self._context, lv_key, topic, msg_type, callback)
+        return Subscriber(self._context, lv_key, topic, msg_type, self.graph, callback)
 
     def create_service(
         self,
@@ -1150,7 +1243,9 @@ class Node:
             topic=service,
             type_name=get_type_name(service_type),
         )
-        return ServiceServer(self._context, lv_key, service, service_type, callback)
+        return ServiceServer(
+            self._context, lv_key, service, service_type, self.graph, callback
+        )
 
     def create_client(
         self,
@@ -1190,7 +1285,7 @@ class Node:
             topic=service,
             type_name=get_type_name(service_type),
         )
-        return ServiceClient(self._context, lv_key, service, service_type)
+        return ServiceClient(self._context, lv_key, service, service_type, self.graph)
 
     def close(self) -> None:
         """Close the node and release all resources."""
