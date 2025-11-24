@@ -22,15 +22,16 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
+from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15zrm/msgs/header.proto\x12\x03zrm\"0\n\x06Header\x12\x14\n\x0ctimestamp_ns\x18\x01 \x01(\x03\x12\x10\n\x08\x66rame_id\x18\x02 \x01(\tb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15zrm/msgs/header.proto\x12\x03zrm\x1a\x1fgoogle/protobuf/timestamp.proto\"E\n\x06Header\x12)\n\x05stamp\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x10\n\x08\x66rame_id\x18\x02 \x01(\tb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'zrm.msgs.header_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_HEADER']._serialized_start=30
-  _globals['_HEADER']._serialized_end=78
+  _globals['_HEADER']._serialized_start=63
+  _globals['_HEADER']._serialized_end=132
 # @@protoc_insertion_point(module_scope)
