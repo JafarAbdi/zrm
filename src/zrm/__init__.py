@@ -483,7 +483,6 @@ class Publisher:
         liveliness_key: str,
         topic: str,
         msg_type: type[Message],
-        graph: "Graph",
     ):
         """Create a publisher.
 
@@ -492,12 +491,10 @@ class Publisher:
             liveliness_key: Liveliness key for graph discovery
             topic: Zenoh key expression (e.g., "robot/pose")
             msg_type: Protobuf message type
-            graph: Graph instance for discovery operations
         """
         self._topic = clean_topic_name(topic)
         self._msg_type = msg_type
         self._session = context.session
-        self._graph = graph
         self._publisher = self._session.declare_publisher(self._topic)
 
         # Declare liveliness token for graph discovery
@@ -523,17 +520,6 @@ class Publisher:
         attachment = zenoh.ZBytes(type_name.encode())
         self._publisher.put(serialize(msg), attachment=attachment)
 
-    def wait_for_subscribers(self, timeout: float | None = None) -> bool:
-        """Wait until at least one subscriber is listening on this topic.
-
-        Args:
-            timeout: Maximum time to wait in seconds, or None for no timeout
-
-        Returns:
-            True if the condition was met, False if timeout occurred
-        """
-        return self._graph.wait_for(EntityKind.SUBSCRIBER, self._topic, timeout)
-
     def close(self) -> None:
         """Close the publisher and release resources."""
         self._lv_token.undeclare()
@@ -553,7 +539,6 @@ class Subscriber:
         liveliness_key: str,
         topic: str,
         msg_type: type[Message],
-        graph: "Graph",
         callback: Callable[[Message], None] | None = None,
     ):
         """Create a subscriber.
@@ -563,12 +548,10 @@ class Subscriber:
             liveliness_key: Liveliness key for graph discovery
             topic: Zenoh key expression (e.g., "robot/pose")
             msg_type: Protobuf message type
-            graph: Graph instance for discovery operations
             callback: Optional callback function called on each message
         """
         self._topic = clean_topic_name(topic)
         self._msg_type = msg_type
-        self._graph = graph
         self._callback = callback
         self._latest_msg: Message | None = None
         self._lock = threading.Lock()
@@ -610,17 +593,6 @@ class Subscriber:
                 print(f'Warning: No messages received on topic "{self._topic}" yet.')
             return self._latest_msg
 
-    def wait_for_publishers(self, timeout: float | None = None) -> bool:
-        """Wait until at least one publisher is publishing on this topic.
-
-        Args:
-            timeout: Maximum time to wait in seconds, or None for no timeout
-
-        Returns:
-            True if the condition was met, False if timeout occurred
-        """
-        return self._graph.wait_for(EntityKind.PUBLISHER, self._topic, timeout)
-
     def close(self) -> None:
         """Close the subscriber and release resources."""
         self._lv_token.undeclare()
@@ -639,7 +611,6 @@ class ServiceServer:
         liveliness_key: str,
         service: str,
         service_type: type[Message],
-        graph: "Graph",
         callback: Callable[[Message], Message],
     ):
         """Create a service server.
@@ -649,13 +620,11 @@ class ServiceServer:
             liveliness_key: Liveliness key for graph discovery
             service: Service name (e.g., "compute_trajectory")
             service_type: Protobuf service message type with nested Request and Response
-            graph: Graph instance for discovery operations
             callback: Function that takes request and returns response
         """
         self._service = clean_topic_name(service)
         self._request_type = service_type.Request
         self._response_type = service_type.Response
-        self._graph = graph
         self._callback = callback
 
         self._session = context.session
@@ -707,17 +676,6 @@ class ServiceServer:
         # Declare liveliness token for graph discovery
         self._lv_token = self._session.liveliness().declare_token(liveliness_key)
 
-    def wait_for_clients(self, timeout: float | None = None) -> bool:
-        """Wait until at least one client is connected to this service.
-
-        Args:
-            timeout: Maximum time to wait in seconds, or None for no timeout
-
-        Returns:
-            True if the condition was met, False if timeout occurred
-        """
-        return self._graph.wait_for(EntityKind.CLIENT, self._service, timeout)
-
     def close(self) -> None:
         """Close the service server and release resources."""
         self._lv_token.undeclare()
@@ -736,7 +694,6 @@ class ServiceClient:
         liveliness_key: str,
         service: str,
         service_type: type[Message],
-        graph: "Graph",
     ):
         """Create a service client.
 
@@ -745,12 +702,10 @@ class ServiceClient:
             liveliness_key: Liveliness key for graph discovery
             service: Service name
             service_type: Protobuf service message type with nested Request and Response
-            graph: Graph instance for discovery operations
         """
         self._service = clean_topic_name(service)
         self._request_type = service_type.Request
         self._response_type = service_type.Response
-        self._graph = graph
 
         self._session = context.session
 
@@ -825,17 +780,6 @@ class ServiceClient:
         raise TimeoutError(
             f"Service '{self._service}' did not respond within {timeout} seconds",
         )
-
-    def wait_for_service(self, timeout: float | None = None) -> bool:
-        """Wait until the service is available.
-
-        Args:
-            timeout: Maximum time to wait in seconds, or None for no timeout
-
-        Returns:
-            True if the service is available, False if timeout occurred
-        """
-        return self._graph.wait_for(EntityKind.SERVICE, self._service, timeout)
 
     def close(self) -> None:
         """Close the service client and release resources."""
@@ -1076,38 +1020,82 @@ class Graph:
 
         return results
 
-    def wait_for(
-        self,
-        kind: EntityKind,
-        topic: str,
-        timeout: float | None = None,
-    ) -> bool:
-        """Wait until at least one entity of `kind` exists on `topic`.
+    def wait_for_subscribers(self, topic: str, timeout: float | None = None) -> bool:
+        """Wait until at least one subscriber exists on the topic.
 
         Args:
-            kind: Entity kind (PUBLISHER, SUBSCRIBER, SERVICE, or CLIENT)
-            topic: Topic or service name
+            topic: Topic name
             timeout: Maximum time to wait in seconds, or None for no timeout
 
         Returns:
             True if the condition was met, False if timeout occurred
         """
-        if kind == EntityKind.NODE:
-            raise ValueError(
-                "Cannot wait for NODE entities, use a specific endpoint kind"
-            )
 
         def predicate() -> bool:
-            if kind in (EntityKind.PUBLISHER, EntityKind.SUBSCRIBER):
-                for key in self._data._by_topic.get(topic, []):
-                    if self._data._entities[key].kind == kind:
-                        return True
-                return False
-            else:  # SERVICE or CLIENT
-                for key in self._data._by_service.get(topic, []):
-                    if self._data._entities[key].kind == kind:
-                        return True
-                return False
+            for key in self._data._by_topic.get(topic, []):
+                if self._data._entities[key].kind == EntityKind.SUBSCRIBER:
+                    return True
+            return False
+
+        with self._condition:
+            return self._condition.wait_for(predicate, timeout=timeout)
+
+    def wait_for_publishers(self, topic: str, timeout: float | None = None) -> bool:
+        """Wait until at least one publisher exists on the topic.
+
+        Args:
+            topic: Topic name
+            timeout: Maximum time to wait in seconds, or None for no timeout
+
+        Returns:
+            True if the condition was met, False if timeout occurred
+        """
+
+        def predicate() -> bool:
+            for key in self._data._by_topic.get(topic, []):
+                if self._data._entities[key].kind == EntityKind.PUBLISHER:
+                    return True
+            return False
+
+        with self._condition:
+            return self._condition.wait_for(predicate, timeout=timeout)
+
+    def wait_for_service(self, service: str, timeout: float | None = None) -> bool:
+        """Wait until a service server is available.
+
+        Args:
+            service: Service name
+            timeout: Maximum time to wait in seconds, or None for no timeout
+
+        Returns:
+            True if the condition was met, False if timeout occurred
+        """
+
+        def predicate() -> bool:
+            for key in self._data._by_service.get(service, []):
+                if self._data._entities[key].kind == EntityKind.SERVICE:
+                    return True
+            return False
+
+        with self._condition:
+            return self._condition.wait_for(predicate, timeout=timeout)
+
+    def wait_for_clients(self, service: str, timeout: float | None = None) -> bool:
+        """Wait until at least one client exists for the service.
+
+        Args:
+            service: Service name
+            timeout: Maximum time to wait in seconds, or None for no timeout
+
+        Returns:
+            True if the condition was met, False if timeout occurred
+        """
+
+        def predicate() -> bool:
+            for key in self._data._by_service.get(service, []):
+                if self._data._entities[key].kind == EntityKind.CLIENT:
+                    return True
+            return False
 
         with self._condition:
             return self._condition.wait_for(predicate, timeout=timeout)
@@ -1174,7 +1162,7 @@ class Node:
             topic=topic,
             type_name=get_type_name(msg_type),
         )
-        return Publisher(self._context, lv_key, topic, msg_type, self.graph)
+        return Publisher(self._context, lv_key, topic, msg_type)
 
     def create_subscriber(
         self,
@@ -1201,7 +1189,7 @@ class Node:
             topic=topic,
             type_name=get_type_name(msg_type),
         )
-        return Subscriber(self._context, lv_key, topic, msg_type, self.graph, callback)
+        return Subscriber(self._context, lv_key, topic, msg_type, callback)
 
     def create_service(
         self,
@@ -1243,9 +1231,7 @@ class Node:
             topic=service,
             type_name=get_type_name(service_type),
         )
-        return ServiceServer(
-            self._context, lv_key, service, service_type, self.graph, callback
-        )
+        return ServiceServer(self._context, lv_key, service, service_type, callback)
 
     def create_client(
         self,
@@ -1285,7 +1271,7 @@ class Node:
             topic=service,
             type_name=get_type_name(service_type),
         )
-        return ServiceClient(self._context, lv_key, service, service_type, self.graph)
+        return ServiceClient(self._context, lv_key, service, service_type)
 
     def close(self) -> None:
         """Close the node and release all resources."""
