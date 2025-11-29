@@ -174,10 +174,10 @@ src/zrm/
 
 ```bash
 # Generate message modules
-../protoc-33.0-linux-x86_64/bin/protoc --pyi_out=src --python_out=src --proto_path=zrm/msgs=proto/msgs/ $(fd -e proto . proto/msgs/)
+protoc --pyi_out=src --python_out=src --proto_path=zrm/msgs=proto/msgs/ $(fd -e proto . proto/msgs/)
 
 # Generate service modules
-../protoc-33.0-linux-x86_64/bin/protoc --pyi_out=src --python_out=src --proto_path=zrm/srvs=proto/srvs/ $(fd -e proto . proto/srvs/)
+protoc --pyi_out=src --python_out=src --proto_path=zrm/srvs=proto/srvs/ $(fd -e proto . proto/srvs/)
 ```
 
 ### Standard Messages

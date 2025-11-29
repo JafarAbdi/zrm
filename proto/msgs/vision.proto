@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package zrm;
+
+// 2D point in pixel coordinates.
+// X is positive right, Y is positive down.
+message Point2D {
+  double x = 1;
+  double y = 2;
+}
+
+// 2D bounding box defined by center and size.
+// All dimensions are in pixels.
+message BoundingBox2D {
+  Point2D center = 1;
+  double size_x = 2;
+  double size_y = 3;
+}
