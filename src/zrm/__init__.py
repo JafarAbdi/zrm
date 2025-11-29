@@ -754,27 +754,25 @@ class ServiceClient:
         )
 
         for reply in replies:
-            try:
-                # Extract and validate response type
-                if reply.ok.attachment is None:
-                    raise MessageTypeMismatchError(
-                        f"Received service response without type metadata from '{self._service}'. "
-                        "Ensure server includes type information.",
-                    )
-                actual_response_type = reply.ok.attachment.to_bytes().decode()
-
-                # Deserialize response with type validation
-                response = deserialize(
-                    reply.ok.payload,
-                    self._response_type,
-                    actual_response_type,
-                )
-                return response
-            except Exception as e:
-                error_msg = reply.err.payload.to_string()
+            if reply.ok is None:
                 raise ServiceError(
-                    f"Service '{self._service}' returned error: {error_msg}",
-                ) from e
+                    f"Service '{self._service}' returned error: {reply.err.payload.to_string()}",
+                )
+            # Extract and validate response type
+            if reply.ok.attachment is None:
+                raise MessageTypeMismatchError(
+                    f"Received service response without type metadata from '{self._service}'. "
+                    "Ensure server includes type information.",
+                )
+            actual_response_type = reply.ok.attachment.to_bytes().decode()
+
+            # Deserialize response with type validation
+            response = deserialize(
+                reply.ok.payload,
+                self._response_type,
+                actual_response_type,
+            )
+            return response
 
         # No replies received
         raise TimeoutError(
