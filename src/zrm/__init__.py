@@ -61,8 +61,10 @@ __all__ = [
     "Node",
     "Publisher",
     "ServerGoalHandle",
+    "ServiceCancelled",
     "ServiceClient",
     "ServiceError",
+    "ServiceFuture",
     "ServiceServer",
     "Subscriber",
     "init",
@@ -259,6 +261,10 @@ class GoalStatus(StrEnum):
             ),
         }
         return target in valid_transitions.get(self, tuple())
+
+
+class ServiceCancelled(Exception):
+    """Exception raised when a service call is cancelled."""
 
 
 class EntityKind(StrEnum):
@@ -817,6 +823,67 @@ class ServiceServer:
         self._queryable.undeclare()
 
 
+class ServiceFuture:
+    """Future for async service calls.
+
+    Returned by ServiceClient.call_async(). Provides methods to wait for
+    results, check completion status, and cancel pending calls.
+    """
+
+    def __init__(self, cancellation_token: zenoh.CancellationToken):
+        self._result: Message | None = None
+        self._exception: Exception | None = None
+        self._done = threading.Event()
+        self._cancellation_token = cancellation_token
+
+    def _set_result(self, result: Message) -> None:
+        self._result = result
+        self._done.set()
+
+    def _set_exception(self, exception: Exception) -> None:
+        self._exception = exception
+        self._done.set()
+
+    def result(self, timeout: float | None = None) -> Message:
+        """Wait for and return the result.
+
+        Args:
+            timeout: Maximum seconds to wait, or None for no limit
+
+        Returns:
+            The response message
+
+        Raises:
+            TimeoutError: If timeout expires before result is ready
+            ServiceCancelled: If the call was cancelled
+            ServiceError: If the service returned an error
+        """
+        if not self._done.wait(timeout):
+            raise TimeoutError("Timed out waiting for service result")
+        if self._exception is not None:
+            raise self._exception
+        return self._result
+
+    def done(self) -> bool:
+        """Return True if completed (success, error, or cancelled)."""
+        return self._done.is_set()
+
+    def cancel(self) -> bool:
+        """Cancel the call.
+
+        Returns:
+            True if cancellation was requested, False if already done
+        """
+        if self._done.is_set():
+            return False
+        self._cancellation_token.cancel()
+        return True
+
+    def cancelled(self) -> bool:
+        """Return True if the call was cancelled."""
+        return self._cancellation_token.is_cancelled
+
+
 class ServiceClient:
     """Service client for calling services.
 
@@ -855,12 +922,13 @@ class ServiceClient:
         self,
         request: Message,
         timeout: float = 5.0,
+        _cancellation_token: zenoh.CancellationToken | None = None,
     ) -> Message:
         """Call the service synchronously.
 
         Args:
             request: Protobuf request message
-            timeout: Timeout for call in seconds (default: 5.0)
+            timeout: Timeout in seconds (default: 5.0)
 
         Returns:
             Protobuf response message
@@ -869,6 +937,7 @@ class ServiceClient:
             TypeError: If request is not an instance of the expected type
             TimeoutError: If no response within timeout
             ServiceError: If service returns error
+            ServiceCancelled: If cancelled (when using call_async)
         """
         if not isinstance(request, self._request_type):
             raise TypeError(
@@ -880,39 +949,83 @@ class ServiceClient:
         request_type_name = get_type_name(request)
         request_attachment = zenoh.ZBytes(request_type_name.encode())
 
-        # Use the querier to make the call
         replies = self._session.get(
             self._service,
             payload=serialize(request),
             attachment=request_attachment,
             timeout=timeout,
+            cancellation_token=_cancellation_token,
         )
 
-        for reply in replies:
-            if reply.ok is None:
-                raise ServiceError(
-                    f"Service '{self._service}' returned error: {reply.err.payload.to_string()}",
-                )
-            # Extract and validate response type
-            if reply.ok.attachment is None:
-                raise MessageTypeMismatchError(
-                    f"Received service response without type metadata from '{self._service}'. "
-                    "Ensure server includes type information.",
-                )
-            actual_response_type = reply.ok.attachment.to_bytes().decode()
+        try:
+            for reply in replies:
+                if reply.ok is None:
+                    raise ServiceError(
+                        f"Service '{self._service}' returned error: {reply.err.payload.to_string()}",
+                    )
+                # Extract and validate response type
+                if reply.ok.attachment is None:
+                    raise MessageTypeMismatchError(
+                        f"Received service response without type metadata from '{self._service}'. "
+                        "Ensure server includes type information.",
+                    )
+                actual_response_type = reply.ok.attachment.to_bytes().decode()
 
-            # Deserialize response with type validation
-            response = deserialize(
-                reply.ok.payload,
-                self._response_type,
-                actual_response_type,
-            )
-            return response
+                # Deserialize response with type validation
+                response = deserialize(
+                    reply.ok.payload,
+                    self._response_type,
+                    actual_response_type,
+                )
+                return response
+        except Exception:
+            if _cancellation_token is not None and _cancellation_token.is_cancelled:
+                raise ServiceCancelled(
+                    f"Service call to '{self._service}' was cancelled"
+                )
+            raise
 
-        # No replies received
+        # No replies received - check if cancelled
+        if _cancellation_token is not None and _cancellation_token.is_cancelled:
+            raise ServiceCancelled(f"Service call to '{self._service}' was cancelled")
+
         raise TimeoutError(
             f"Service '{self._service}' did not respond within {timeout} seconds",
         )
+
+    def call_async(self, request: Message, timeout: float = 5.0) -> ServiceFuture:
+        """Call the service asynchronously.
+
+        Args:
+            request: Protobuf request message
+            timeout: Timeout in seconds (default: 5.0)
+
+        Returns:
+            ServiceFuture to track the call
+
+        Raises:
+            TypeError: If request is not an instance of the expected type
+        """
+        if not isinstance(request, self._request_type):
+            raise TypeError(
+                f"Expected request of type {self._request_type.__name__}, "
+                f"got {type(request).__name__}",
+            )
+
+        cancellation_token = zenoh.CancellationToken()
+        future = ServiceFuture(cancellation_token)
+
+        def worker():
+            try:
+                result = self.call(
+                    request, timeout=timeout, _cancellation_token=cancellation_token
+                )
+                future._set_result(result)
+            except Exception as e:
+                future._set_exception(e)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return future
 
     def close(self) -> None:
         """Close the service client and release resources."""

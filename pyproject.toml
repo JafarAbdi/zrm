@@ -19,7 +19,10 @@ classifiers = [
   "Topic :: System :: Networking",
 ]
 
-dependencies = ["eclipse-zenoh>=1.6.2", "protobuf>=6.33.0"]
+dependencies = [
+    "eclipse-zenoh>=1.6.2",
+    "protobuf>=6.33.0",
+]
 
 [project.urls]
 Homepage   = "https://github.com/JafarAbdi/zrm"
