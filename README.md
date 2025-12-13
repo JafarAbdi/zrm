@@ -147,38 +147,32 @@ message AddTwoInts {
 
 ## Message Organization
 
-ZRM uses a convention-based message organization:
+ZRM uses a convention-based message organization with the `zrm-proto` CLI tool to generate Python modules from protobuf definitions.
 
 ### Directory Structure
 
+Packages must follow this structure:
+
 ```
-proto/
-├── msgs/              # Message definitions
-│   ├── geometry.proto
-│   ├── sensor.proto
-│   └── header.proto
-└── srvs/              # Service definitions
-    ├── std.proto
-    └── examples.proto
-src/zrm/
-├── msgs/                  # Generated message modules
-│   ├── geometry_pb2.py
-│   ├── sensor_pb2.py
-│   └── header_pb2.py
-└── srvs/                  # Generated service modules
-    ├── std_pb2.py
-    └── examples_pb2.py
+src/<package>/
+├── proto/                 # Proto definitions
+│   ├── msgs/              # Message definitions (.proto files)
+│   └── srvs/              # Service definitions (.proto files)
+├── msgs/                  # Generated message modules (*_pb2.py)
+└── srvs/                  # Generated service modules (*_pb2.py)
 ```
 
 ### Generating Python Code
 
 ```bash
-# Generate message modules
-protoc --pyi_out=src --python_out=src --proto_path=zrm/msgs=proto/msgs/ $(fd -e proto . proto/msgs/)
+# Generate protos (run from package root)
+zrm-proto
 
-# Generate service modules
-protoc --pyi_out=src --python_out=src --proto_path=zrm/srvs=proto/srvs/ $(fd -e proto . proto/srvs/)
+# Generate protos for a package that depends on zrm
+zrm-proto --dep zrm
 ```
+
+The tool auto-discovers the package from `src/<package>/proto/`. The `--dep` flag looks up the proto directory from installed packages, so dependencies must be installed first.
 
 ### Standard Messages
 
