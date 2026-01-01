@@ -910,18 +910,21 @@ class ServerGoalHandle:
         self,
         goal_id: str,
         goal: Message,
-        action_server: "ActionServer",
+        publish_feedback_fn: Callable[[str, Message], None],
+        publish_result_fn: Callable[[str, GoalStatus, Message], None],
     ):
         """Create a server goal handle.
 
         Args:
             goal_id: Unique identifier for this goal
             goal: The goal message from the client
-            action_server: Reference to the parent action server
+            publish_feedback_fn: Callback to publish feedback
+            publish_result_fn: Callback to publish result
         """
         self._goal_id = goal_id
         self._goal = goal
-        self._action_server = action_server
+        self._publish_feedback_fn = publish_feedback_fn
+        self._publish_result_fn = publish_result_fn
         self._status = GoalStatus.PENDING
         self._cancel_requested = False
         self._lock = threading.Lock()
@@ -986,7 +989,7 @@ class ServerGoalHandle:
         Args:
             feedback: Feedback message to send to clients
         """
-        self._action_server._publish_feedback(self._goal_id, feedback)
+        self._publish_feedback_fn(self._goal_id, feedback)
 
     def set_succeeded(self, result: Message) -> None:
         """Mark the goal as successfully completed.
@@ -999,7 +1002,7 @@ class ServerGoalHandle:
                 print(f"Warning: Cannot transition to SUCCEEDED from {self._status}")
                 return
             self._status = GoalStatus.SUCCEEDED
-        self._action_server._publish_result(self._goal_id, GoalStatus.SUCCEEDED, result)
+        self._publish_result_fn(self._goal_id, GoalStatus.SUCCEEDED, result)
 
     def set_aborted(self, result: Message) -> None:
         """Mark the goal as aborted (server-side failure).
@@ -1012,7 +1015,7 @@ class ServerGoalHandle:
                 print(f"Warning: Cannot transition to ABORTED from {self._status}")
                 return
             self._status = GoalStatus.ABORTED
-        self._action_server._publish_result(self._goal_id, GoalStatus.ABORTED, result)
+        self._publish_result_fn(self._goal_id, GoalStatus.ABORTED, result)
 
     def set_canceled(self, result: Message) -> None:
         """Mark the goal as canceled.
@@ -1029,7 +1032,7 @@ class ServerGoalHandle:
                 print(f"Warning: Cannot transition to CANCELED from {self._status}")
                 return
             self._status = GoalStatus.CANCELED
-        self._action_server._publish_result(self._goal_id, GoalStatus.CANCELED, result)
+        self._publish_result_fn(self._goal_id, GoalStatus.CANCELED, result)
 
 
 class ActionServer:
@@ -1067,7 +1070,6 @@ class ActionServer:
         self._current_goal: ServerGoalHandle | None = None
         self._execute_thread: threading.Thread | None = None
         self._lock = threading.RLock()
-        self._shutdown = False
 
         # Declare publishers for feedback and result
         self._feedback_pub = self._session.declare_publisher(
@@ -1122,7 +1124,12 @@ class ActionServer:
                     self._current_goal._request_cancel()
 
                 # Create new goal handle
-                goal_handle = ServerGoalHandle(goal_id, goal, self)
+                goal_handle = ServerGoalHandle(
+                    goal_id,
+                    goal,
+                    self._publish_feedback,
+                    self._publish_result,
+                )
                 self._current_goal = goal_handle
 
                 # Start execute thread
@@ -1224,7 +1231,6 @@ class ActionServer:
 
     def close(self) -> None:
         """Close the action server and release resources."""
-        self._shutdown = True
         self._lv_token.undeclare()
         self._goal_queryable.undeclare()
         self._cancel_queryable.undeclare()
@@ -1542,7 +1548,6 @@ class Graph:
             session: Zenoh session to use
             domain_id: Domain ID to monitor (default: DOMAIN_ID constant = 0)
         """
-        self._domain_id = domain_id
         self._data = GraphData()
         self._condition = threading.Condition()
         self._session = session
