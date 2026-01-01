@@ -836,11 +836,18 @@ class ServiceFuture:
         self._done = threading.Event()
         self._cancellation_token = zenoh.CancellationToken()
 
-    def _set_result(self, result: Message) -> None:
+    @property
+    def cancellation_token(self) -> zenoh.CancellationToken:
+        """Cancellation token for this call."""
+        return self._cancellation_token
+
+    def set_result(self, result: Message) -> None:
+        """Set the result and mark as done."""
         self._result = result
         self._done.set()
 
-    def _set_exception(self, exception: Exception) -> None:
+    def set_exception(self, exception: BaseException) -> None:
+        """Set an exception and mark as done."""
         self._exception = exception
         self._done.set()
 
@@ -1033,12 +1040,12 @@ class ServiceClient:
                 payload=serialize(request),
                 attachment=request_attachment,
                 timeout=timeout,
-                cancellation_token=future._cancellation_token,
+                cancellation_token=future.cancellation_token,
             )
 
             for reply in replies:
-                if future._cancellation_token.is_cancelled:
-                    future._set_exception(
+                if future.cancellation_token.is_cancelled:
+                    future.set_exception(
                         ServiceCancelled(
                             f"Service call to '{self._service}' was cancelled"
                         )
@@ -1046,7 +1053,7 @@ class ServiceClient:
                     return
 
                 if reply.ok is None:
-                    future._set_exception(
+                    future.set_exception(
                         ServiceError(
                             f"Service '{self._service}' returned error: {reply.err.payload.to_string()}"
                         )
@@ -1054,7 +1061,7 @@ class ServiceClient:
                     return
 
                 if reply.ok.attachment is None:
-                    future._set_exception(
+                    future.set_exception(
                         MessageTypeMismatchError(
                             f"Received service response without type metadata from '{self._service}'. "
                             "Ensure server includes type information."
@@ -1068,26 +1075,26 @@ class ServiceClient:
                     self._response_type,
                     actual_response_type,
                 )
-                future._set_result(result)
+                future.set_result(result)
                 return
 
-            if future._cancellation_token.is_cancelled:
-                future._set_exception(
+            if future.cancellation_token.is_cancelled:
+                future.set_exception(
                     ServiceCancelled(f"Service call to '{self._service}' was cancelled")
                 )
             else:
-                future._set_exception(
+                future.set_exception(
                     TimeoutError(
                         f"Service '{self._service}' did not respond within {timeout} seconds"
                     )
                 )
         except Exception as e:
-            if future._cancellation_token.is_cancelled:
-                future._set_exception(
+            if future.cancellation_token.is_cancelled:
+                future.set_exception(
                     ServiceCancelled(f"Service call to '{self._service}' was cancelled")
                 )
             else:
-                future._set_exception(e)
+                future.set_exception(e)
 
     def close(self) -> None:
         """Close the service client and release resources."""
