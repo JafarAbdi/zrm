@@ -34,6 +34,7 @@ dev = ["pre-commit>=4.2.0", "pytest>=8.4.1"]
 zrm-node    = "zrm.cli.node:main"
 zrm-topic   = "zrm.cli.topic:main"
 zrm-service = "zrm.cli.service:main"
+zrm-action  = "zrm.cli.action:main"
 zrm-proto   = "zrm.cli.proto:main"
 
 [build-system]

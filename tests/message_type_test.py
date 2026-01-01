@@ -81,7 +81,7 @@ def test_get_message_type_invalid_format():
 
 def test_get_message_type_invalid_category():
     """Test get_message_type with invalid category."""
-    with pytest.raises(ValueError, match="Category must be 'msgs' or 'srvs'"):
+    with pytest.raises(ValueError, match="Category must be 'msgs', 'srvs', or 'actions'"):
         zrm.get_message_type("zrm/invalid/geometry/Point")
 
 

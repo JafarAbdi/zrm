@@ -109,7 +109,7 @@ Examples:
     args = parser.parse_args()
 
     out_dir = args.out_dir.resolve()
-    categories = ["msgs", "srvs"]
+    categories = ["msgs", "srvs", "actions"]
 
     # Find package from current directory
     result = find_package()

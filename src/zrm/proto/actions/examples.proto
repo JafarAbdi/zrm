@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package zrm;
+
+// Fibonacci action - compute Fibonacci sequence up to a given order
+// Based on ROS2 action_tutorials_interfaces/action/Fibonacci
+message Fibonacci {
+  message Goal {
+    int32 order = 1;  // number of Fibonacci numbers to compute
+  }
+
+  message Result {
+    repeated int32 sequence = 1;  // complete Fibonacci sequence
+  }
+
+  message Feedback {
+    repeated int32 partial_sequence = 1;  // sequence computed so far
+  }
+}
