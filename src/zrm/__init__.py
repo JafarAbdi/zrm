@@ -7,6 +7,7 @@ import sys
 import threading
 import uuid
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import enum
 
@@ -223,6 +224,11 @@ class GoalStatus(StrEnum):
     - SUCCEEDED: Goal completed successfully
     - ABORTED: Goal was aborted by the server (error during execution)
     - CANCELED: Goal was canceled (by client or preempted by new goal)
+
+    State transitions:
+        PENDING -> EXECUTING, CANCELED
+        EXECUTING -> CANCELING, SUCCEEDED, ABORTED, CANCELED
+        CANCELING -> SUCCEEDED, ABORTED, CANCELED
     """
 
     PENDING = "PENDING"
@@ -231,6 +237,28 @@ class GoalStatus(StrEnum):
     SUCCEEDED = "SUCCEEDED"
     ABORTED = "ABORTED"
     CANCELED = "CANCELED"
+
+    def is_terminal(self) -> bool:
+        """Check if this is a terminal state (goal has completed)."""
+        return self in (GoalStatus.SUCCEEDED, GoalStatus.ABORTED, GoalStatus.CANCELED)
+
+    def can_transition_to(self, target: GoalStatus) -> bool:
+        """Check if transition to target state is valid."""
+        valid_transitions: dict[GoalStatus, tuple[GoalStatus]] = {
+            GoalStatus.PENDING: (GoalStatus.EXECUTING, GoalStatus.CANCELED),
+            GoalStatus.EXECUTING: (
+                GoalStatus.CANCELING,
+                GoalStatus.SUCCEEDED,
+                GoalStatus.ABORTED,
+                GoalStatus.CANCELED,
+            ),
+            GoalStatus.CANCELING: (
+                GoalStatus.SUCCEEDED,
+                GoalStatus.ABORTED,
+                GoalStatus.CANCELED,
+            ),
+        }
+        return target in valid_transitions.get(self, tuple())
 
 
 class EntityKind(StrEnum):
@@ -945,7 +973,8 @@ class ServerGoalHandle:
         with self._lock:
             return self._status
 
-    def is_cancel_requested(self) -> bool:
+    @property
+    def cancel_requested(self) -> bool:
         """Check if cancellation has been requested.
 
         Execute callbacks should check this periodically and cleanly
@@ -954,34 +983,34 @@ class ServerGoalHandle:
         with self._lock:
             return self._cancel_requested
 
-    def _request_cancel(self) -> bool:
-        """Request cancellation of this goal (internal use).
+    def request_cancel(self) -> bool:
+        """Request cancellation of this goal.
 
         Returns:
             True if the goal can be canceled, False if already terminal.
         """
         with self._lock:
-            if self._status in (
-                GoalStatus.SUCCEEDED,
-                GoalStatus.ABORTED,
-                GoalStatus.CANCELED,
-            ):
+            if self._status.is_terminal():
                 return False
             self._cancel_requested = True
             if self._status == GoalStatus.EXECUTING:
                 self._status = GoalStatus.CANCELING
             return True
 
-    def set_executing(self) -> None:
+    def _transition_to(self, target: GoalStatus) -> bool:
+        """Attempt state transition. Returns True if successful."""
+        with self._lock:
+            if not self._status.can_transition_to(target):
+                return False
+            self._status = target
+            return True
+
+    def execute(self) -> None:
         """Transition the goal to EXECUTING state.
 
         Should be called at the start of the execute callback.
         """
-        with self._lock:
-            if self._status != GoalStatus.PENDING:
-                print(f"Warning: Cannot transition to EXECUTING from {self._status}")
-                return
-            self._status = GoalStatus.EXECUTING
+        self._transition_to(GoalStatus.EXECUTING)
 
     def publish_feedback(self, feedback: Message) -> None:
         """Publish feedback for this goal.
@@ -991,48 +1020,32 @@ class ServerGoalHandle:
         """
         self._publish_feedback_fn(self._goal_id, feedback)
 
-    def set_succeeded(self, result: Message) -> None:
+    def succeed(self, result: Message) -> None:
         """Mark the goal as successfully completed.
 
         Args:
             result: Result message to send to clients
         """
-        with self._lock:
-            if self._status not in (GoalStatus.EXECUTING, GoalStatus.CANCELING):
-                print(f"Warning: Cannot transition to SUCCEEDED from {self._status}")
-                return
-            self._status = GoalStatus.SUCCEEDED
-        self._publish_result_fn(self._goal_id, GoalStatus.SUCCEEDED, result)
+        if self._transition_to(GoalStatus.SUCCEEDED):
+            self._publish_result_fn(self._goal_id, GoalStatus.SUCCEEDED, result)
 
-    def set_aborted(self, result: Message) -> None:
+    def abort(self, result: Message) -> None:
         """Mark the goal as aborted (server-side failure).
 
         Args:
             result: Result message to send to clients
         """
-        with self._lock:
-            if self._status not in (GoalStatus.EXECUTING, GoalStatus.CANCELING):
-                print(f"Warning: Cannot transition to ABORTED from {self._status}")
-                return
-            self._status = GoalStatus.ABORTED
-        self._publish_result_fn(self._goal_id, GoalStatus.ABORTED, result)
+        if self._transition_to(GoalStatus.ABORTED):
+            self._publish_result_fn(self._goal_id, GoalStatus.ABORTED, result)
 
-    def set_canceled(self, result: Message) -> None:
+    def cancel(self, result: Message) -> None:
         """Mark the goal as canceled.
 
         Args:
             result: Result message to send to clients
         """
-        with self._lock:
-            if self._status not in (
-                GoalStatus.PENDING,
-                GoalStatus.EXECUTING,
-                GoalStatus.CANCELING,
-            ):
-                print(f"Warning: Cannot transition to CANCELED from {self._status}")
-                return
-            self._status = GoalStatus.CANCELED
-        self._publish_result_fn(self._goal_id, GoalStatus.CANCELED, result)
+        if self._transition_to(GoalStatus.CANCELED):
+            self._publish_result_fn(self._goal_id, GoalStatus.CANCELED, result)
 
 
 class ActionServer:
@@ -1040,7 +1053,7 @@ class ActionServer:
 
     Implements a single-goal policy: only one goal can be active at a time.
     When a new goal arrives, the current goal is automatically preempted.
-    The execute callback runs in a separate thread.
+    The execute callback runs in a thread pool executor.
     """
 
     def __init__(
@@ -1058,7 +1071,7 @@ class ActionServer:
             liveliness_key: Liveliness key for graph discovery
             action_name: Action name (e.g., "navigate")
             action_type: Protobuf action type with nested Goal, Result, Feedback
-            execute_callback: Function called for each goal (runs in separate thread)
+            execute_callback: Function called for each goal (runs in executor thread)
         """
         self._action_name = clean_topic_name(action_name)
         self._goal_type = action_type.Goal
@@ -1068,8 +1081,8 @@ class ActionServer:
         self._session = context.session
 
         self._current_goal: ServerGoalHandle | None = None
-        self._execute_thread: threading.Thread | None = None
-        self._lock = threading.RLock()
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="action")
+        self._lock = threading.Lock()
 
         # Declare publishers for feedback and result
         self._feedback_pub = self._session.declare_publisher(
@@ -1121,7 +1134,7 @@ class ActionServer:
             with self._lock:
                 # Preempt current goal if active
                 if self._current_goal is not None:
-                    self._current_goal._request_cancel()
+                    self._current_goal.request_cancel()
 
                 # Create new goal handle
                 goal_handle = ServerGoalHandle(
@@ -1132,13 +1145,8 @@ class ActionServer:
                 )
                 self._current_goal = goal_handle
 
-                # Start execute thread
-                self._execute_thread = threading.Thread(
-                    target=self._execute_goal,
-                    args=(goal_handle,),
-                    daemon=True,
-                )
-                self._execute_thread.start()
+                # Submit to executor
+                self._executor.submit(self._execute_goal, goal_handle)
 
             # Reply with goal ID (accepted)
             query.reply(
@@ -1163,7 +1171,7 @@ class ActionServer:
                     )
                     return
 
-                success = self._current_goal._request_cancel()
+                success = self._current_goal.request_cancel()
 
             if success:
                 query.reply(
@@ -1179,30 +1187,23 @@ class ActionServer:
             query.reply_err(zenoh.ZBytes(f"Error: {e}".encode()))
 
     def _execute_goal(self, goal_handle: ServerGoalHandle) -> None:
-        """Execute a goal in a separate thread."""
+        """Execute a goal in the executor thread."""
         try:
             self._execute_callback(goal_handle)
 
             # If callback didn't set a terminal state, abort
-            if goal_handle.status not in (
-                GoalStatus.SUCCEEDED,
-                GoalStatus.ABORTED,
-                GoalStatus.CANCELED,
-            ):
+            if not goal_handle.status.is_terminal():
                 print(
                     f"Warning: Execute callback did not set terminal state, aborting goal {goal_handle.goal_id}"
                 )
-                goal_handle.set_aborted(self._result_type())
+                goal_handle.abort(self._result_type())
 
         except Exception as e:
             print(f"Error in execute callback: {e}")
             try:
-                goal_handle.set_aborted(self._result_type())
+                goal_handle.abort(self._result_type())
             except Exception as inner_e:
-                # Best-effort abort: log failure but do not raise further exceptions
-                print(
-                    f"Failed to set aborted state for goal {goal_handle.goal_id}: {inner_e}"
-                )
+                print(f"Failed to abort goal {goal_handle.goal_id}: {inner_e}")
 
     def _publish_feedback(self, goal_id: str, feedback: Message) -> None:
         """Publish feedback for a goal."""
@@ -1213,7 +1214,6 @@ class ActionServer:
             )
 
         type_name = get_type_name(feedback)
-        # Attachment format: type|goal_id
         attachment = zenoh.ZBytes(f"{type_name}|{goal_id}".encode())
         self._feedback_pub.put(serialize(feedback), attachment=attachment)
 
@@ -1228,12 +1228,24 @@ class ActionServer:
             )
 
         type_name = get_type_name(result)
-        # Attachment format: type|goal_id|status
         attachment = zenoh.ZBytes(f"{type_name}|{goal_id}|{status}".encode())
         self._result_pub.put(serialize(result), attachment=attachment)
 
-    def close(self) -> None:
-        """Close the action server and release resources."""
+    def close(self, timeout: float = 5.0) -> None:
+        """Close the action server and release resources.
+
+        Args:
+            timeout: Maximum time to wait for active goal to complete (seconds)
+        """
+        # Signal cancellation to active goal
+        with self._lock:
+            if self._current_goal is not None:
+                self._current_goal.request_cancel()
+
+        # Wait for executor to finish with timeout
+        self._executor.shutdown(wait=True, cancel_futures=False)
+
+        # Clean up Zenoh resources
         self._lv_token.undeclare()
         self._goal_queryable.undeclare()
         self._cancel_queryable.undeclare()

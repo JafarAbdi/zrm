@@ -20,7 +20,7 @@ def execute_fibonacci(goal_handle: ServerGoalHandle) -> None:
     print(f"Executing goal: computing Fibonacci sequence of order {order}")
 
     # Transition to executing state
-    goal_handle.set_executing()
+    goal_handle.execute()
 
     # Initialize sequence
     sequence = [0, 1]
@@ -28,10 +28,10 @@ def execute_fibonacci(goal_handle: ServerGoalHandle) -> None:
     # Compute Fibonacci sequence
     for i in range(1, order):
         # Check for cancellation
-        if goal_handle.is_cancel_requested():
+        if goal_handle.cancel_requested:
             print("Goal canceled!")
             result = fibonacci_pb2.Fibonacci.Result(sequence=sequence)
-            goal_handle.set_canceled(result)
+            goal_handle.cancel(result)
             return
 
         # Compute next Fibonacci number
@@ -47,7 +47,7 @@ def execute_fibonacci(goal_handle: ServerGoalHandle) -> None:
 
     # Goal succeeded
     result = fibonacci_pb2.Fibonacci.Result(sequence=sequence)
-    goal_handle.set_succeeded(result)
+    goal_handle.succeed(result)
     print(f"Goal succeeded: {sequence}")
 
 
