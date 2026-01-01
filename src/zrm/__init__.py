@@ -1002,12 +1002,14 @@ class ServiceClient:
             f"Service '{self._service}' did not respond within {timeout} seconds",
         )
 
-    def call_async(self, request: Message, timeout: float = 5.0) -> ServiceFuture:
+    def call_async(
+        self, request: Message, timeout: float | None = None
+    ) -> ServiceFuture:
         """Call the service asynchronously with cancellation support.
 
         Args:
             request: Protobuf request message
-            timeout: Timeout in seconds (default: 5.0)
+            timeout: Timeout in seconds for the call (default: None, meaning no timeout)
 
         Returns:
             ServiceFuture to track the call and cancel if needed
