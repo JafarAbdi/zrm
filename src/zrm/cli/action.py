@@ -210,7 +210,7 @@ Examples:
         "-t",
         "--type",
         dest="action_type",
-        help="Action type (e.g., zrm/actions/fibonacci/Fibonacci). Auto-discovered if not specified.",
+        help="Action type (e.g., zrm/actions/examples/Fibonacci). Auto-discovered if not specified.",
     )
     send_parser.add_argument(
         "--no-wait",
