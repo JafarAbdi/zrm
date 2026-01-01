@@ -106,15 +106,15 @@ import zrm
 from zrm.actions import examples_pb2
 
 def execute_fibonacci(goal_handle: zrm.ServerGoalHandle) -> None:
-    goal_handle.set_executing()
+    goal_handle.execute()
     sequence = [0, 1]
     for i in range(1, goal_handle.goal.order):
-        if goal_handle.is_cancel_requested():
-            goal_handle.set_canceled(examples_pb2.Fibonacci.Result(sequence=sequence))
+        if goal_handle.cancel_requested:
+            goal_handle.cancel(examples_pb2.Fibonacci.Result(sequence=sequence))
             return
         sequence.append(sequence[i] + sequence[i - 1])
         goal_handle.publish_feedback(examples_pb2.Fibonacci.Feedback(partial_sequence=sequence))
-    goal_handle.set_succeeded(examples_pb2.Fibonacci.Result(sequence=sequence))
+    goal_handle.succeed(examples_pb2.Fibonacci.Result(sequence=sequence))
 
 node = zrm.Node("action_node")
 server = node.create_action_server("fibonacci", examples_pb2.Fibonacci, execute_fibonacci)
