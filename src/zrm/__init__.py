@@ -1198,8 +1198,11 @@ class ActionServer:
             print(f"Error in execute callback: {e}")
             try:
                 goal_handle.set_aborted(self._result_type())
-            except Exception:
-                pass
+            except Exception as inner_e:
+                # Best-effort abort: log failure but do not raise further exceptions
+                print(
+                    f"Failed to set aborted state for goal {goal_handle.goal_id}: {inner_e}"
+                )
 
     def _publish_feedback(self, goal_id: str, feedback: Message) -> None:
         """Publish feedback for a goal."""
