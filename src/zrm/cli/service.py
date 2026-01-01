@@ -127,13 +127,23 @@ def call_service(service: str, service_type_name: str | None, data: str):
         f"{Color.GREEN}Calling service {Color.BOLD}{service}{Color.RESET}{Color.GREEN} [{service_type_name}]{Color.RESET}"
     )
     print(
-        f"{Color.DIM}Request: {text_format.MessageToString(request, as_one_line=True)}{Color.RESET}\n"
+        f"{Color.DIM}Request: {text_format.MessageToString(request, as_one_line=True)}{Color.RESET}"
     )
+    print(f"{Color.DIM}Waiting for response... (Ctrl+C to cancel){Color.RESET}\n")
 
+    future = client.call_async(request, timeout=300.0)
     try:
-        response = client.call(request)
+        response = future.result()
         print(f"{Color.CYAN}Response:{Color.RESET}")
         print(f"{Color.DIM}{text_format.MessageToString(response)}{Color.RESET}")
+    except KeyboardInterrupt:
+        print(f"\n{Color.YELLOW}Cancelling...{Color.RESET}")
+        future.cancel()
+        print(f"{Color.YELLOW}Cancelled{Color.RESET}")
+        sys.exit(130)
+    except zrm.ServiceCancelled:
+        print(f"{Color.YELLOW}Service call was cancelled{Color.RESET}")
+        sys.exit(130)
     except Exception as e:
         print(f"{Color.RED}Error calling service: {e}{Color.RESET}")
         sys.exit(1)
