@@ -942,13 +942,13 @@ class ServiceClient:
     def call(
         self,
         request: Message,
-        timeout: float = 5.0,
+        timeout: float | None = None,
     ) -> Message:
         """Call the service synchronously.
 
         Args:
             request: Protobuf request message
-            timeout: Timeout for call in seconds (default: 5.0)
+            timeout: Timeout for call in seconds (default: None, meaning no timeout)
 
         Returns:
             Protobuf response message
