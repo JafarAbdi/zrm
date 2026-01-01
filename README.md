@@ -145,6 +145,83 @@ message AddTwoInts {
 }
 ```
 
+### Action Server/Client
+
+Actions are for long-running goals with feedback and cancellation support:
+
+```python
+from zrm import Node, ServerGoalHandle
+from zrm.actions import examples_pb2
+
+# Define execute callback (runs in separate thread)
+def execute_fibonacci(goal_handle: ServerGoalHandle) -> None:
+    goal_handle.set_executing()
+
+    sequence = [0, 1]
+    for i in range(1, goal_handle.goal.order):
+        # Check for cancellation
+        if goal_handle.is_cancel_requested():
+            goal_handle.set_canceled(examples_pb2.Fibonacci.Result(sequence=sequence))
+            return
+
+        sequence.append(sequence[i] + sequence[i - 1])
+        goal_handle.publish_feedback(
+            examples_pb2.Fibonacci.Feedback(partial_sequence=sequence)
+        )
+
+    goal_handle.set_succeeded(examples_pb2.Fibonacci.Result(sequence=sequence))
+
+# Create node
+node = Node("action_node")
+
+# Create action server
+server = node.create_action_server(
+    action_name="fibonacci",
+    action_type=examples_pb2.Fibonacci,
+    execute_callback=execute_fibonacci,
+)
+
+# Create action client
+client = node.create_action_client(
+    action_name="fibonacci",
+    action_type=examples_pb2.Fibonacci,
+)
+
+# Send goal with feedback callback
+def on_feedback(feedback):
+    print(f"Progress: {list(feedback.partial_sequence)}")
+
+goal = examples_pb2.Fibonacci.Goal(order=10)
+goal_handle = client.send_goal(goal, feedback_callback=on_feedback)
+
+# Wait for result
+result = goal_handle.get_result(timeout=30.0)
+print(f"Result: {list(result.sequence)}")
+
+# Clean up
+client.close()
+server.close()
+node.close()
+```
+
+**Action Definition Pattern:**
+```protobuf
+// Actions must have nested Goal, Result, and Feedback messages
+message Fibonacci {
+  message Goal {
+    int32 order = 1;
+  }
+
+  message Result {
+    repeated int32 sequence = 1;
+  }
+
+  message Feedback {
+    repeated int32 partial_sequence = 1;
+  }
+}
+```
+
 ## Message Organization
 
 ZRM uses a convention-based message organization with the `zrm-proto` CLI tool to generate Python modules from protobuf definitions.
@@ -157,9 +234,11 @@ Packages must follow this structure:
 src/<package>/
 ├── proto/                 # Proto definitions
 │   ├── msgs/              # Message definitions (.proto files)
-│   └── srvs/              # Service definitions (.proto files)
+│   ├── srvs/              # Service definitions (.proto files)
+│   └── actions/           # Action definitions (.proto files)
 ├── msgs/                  # Generated message modules (*_pb2.py)
-└── srvs/                  # Generated service modules (*_pb2.py)
+├── srvs/                  # Generated service modules (*_pb2.py)
+└── actions/               # Generated action modules (*_pb2.py)
 ```
 
 ### Generating Python Code
@@ -183,6 +262,10 @@ The tool auto-discovers the package from `src/<package>/proto/`. The `--dep` fla
 
 **Services** (`zrm.srvs`):
 - **std**: Trigger
+- **examples**: AddTwoInts
+
+**Actions** (`zrm.actions`):
+- **examples**: Fibonacci
 
 ## CLI Tools
 
@@ -227,11 +310,28 @@ zrm-service call add_two_ints 'a: 1 b: 2'
 zrm-service call add_two_ints 'a: 1 b: 2' -t zrm/srvs/examples/AddTwoInts
 ```
 
+### Action Commands
+
+```bash
+# List all actions in the network
+zrm-action list
+
+# Send a goal (auto-discovers type)
+zrm-action send fibonacci 'order: 10'
+
+# Send a goal with explicit type
+zrm-action send fibonacci 'order: 10' -t zrm/actions/examples/Fibonacci
+
+# Send a goal without waiting for result
+zrm-action send fibonacci 'order: 10' --no-wait
+```
+
 ## Examples
 
 See `examples/` directory for complete working examples:
 - `talker.py` / `listener.py`: Basic publisher/subscriber pattern
 - `service_server.py` / `service_client.py`: Service request/response pattern
+- `action_server.py` / `action_client.py`: Action with feedback and cancellation
 - Graph discovery and introspection
 
 ## Acknowledgements

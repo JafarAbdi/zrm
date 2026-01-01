@@ -5,6 +5,7 @@ from __future__ import annotations
 import pathlib
 import sys
 import threading
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 import enum
@@ -49,10 +50,16 @@ else:
 
 
 __all__ = [
+    "ActionClient",
+    "ActionError",
+    "ActionServer",
+    "ClientGoalHandle",
+    "GoalStatus",
     "InvalidTopicName",
     "MessageTypeMismatchError",
     "Node",
     "Publisher",
+    "ServerGoalHandle",
     "ServiceClient",
     "ServiceError",
     "ServiceServer",
@@ -98,6 +105,56 @@ def clean_topic_name(key: str) -> str:
             f"Topic name '{key}' cannot start with '/'. Use '{key.lstrip('/')}' instead."
         )
     return key
+
+
+def _validate_service_type(service_type: type) -> None:
+    """Validate that a type is a valid service type with Request and Response.
+
+    Args:
+        service_type: Type to validate
+
+    Raises:
+        TypeError: If type is invalid or missing nested messages
+    """
+    if not isinstance(service_type, type):
+        raise TypeError(
+            f"service_type must be a protobuf message class, got {type(service_type).__name__}"
+        )
+    if not hasattr(service_type, "Request"):
+        raise TypeError(
+            f"Service type '{service_type.__name__}' must have a nested 'Request' message"
+        )
+    if not hasattr(service_type, "Response"):
+        raise TypeError(
+            f"Service type '{service_type.__name__}' must have a nested 'Response' message"
+        )
+
+
+def _validate_action_type(action_type: type) -> None:
+    """Validate that a type is a valid action type with Goal, Result, and Feedback.
+
+    Args:
+        action_type: Type to validate
+
+    Raises:
+        TypeError: If type is invalid or missing nested messages
+    """
+    if not isinstance(action_type, type):
+        raise TypeError(
+            f"action_type must be a protobuf message class, got {type(action_type).__name__}"
+        )
+    if not hasattr(action_type, "Goal"):
+        raise TypeError(
+            f"Action type '{action_type.__name__}' must have a nested 'Goal' message"
+        )
+    if not hasattr(action_type, "Result"):
+        raise TypeError(
+            f"Action type '{action_type.__name__}' must have a nested 'Result' message"
+        )
+    if not hasattr(action_type, "Feedback"):
+        raise TypeError(
+            f"Action type '{action_type.__name__}' must have a nested 'Feedback' message"
+        )
 
 
 # Global context management
@@ -152,6 +209,30 @@ class ServiceError(Exception):
     """Exception raised when a service call fails."""
 
 
+class ActionError(Exception):
+    """Exception raised when an action fails."""
+
+
+class GoalStatus(StrEnum):
+    """Status of a goal in the action system.
+
+    Follows a simplified state machine:
+    - PENDING: Goal received by server, not yet executing
+    - EXECUTING: Goal is actively being processed
+    - CANCELING: Cancel requested, goal is finishing up
+    - SUCCEEDED: Goal completed successfully
+    - ABORTED: Goal was aborted by the server (error during execution)
+    - CANCELED: Goal was canceled (by client or preempted by new goal)
+    """
+
+    PENDING = "PENDING"
+    EXECUTING = "EXECUTING"
+    CANCELING = "CANCELING"
+    SUCCEEDED = "SUCCEEDED"
+    ABORTED = "ABORTED"
+    CANCELED = "CANCELED"
+
+
 class EntityKind(StrEnum):
     """Kind of entity in the graph."""
 
@@ -160,6 +241,8 @@ class EntityKind(StrEnum):
     SUBSCRIBER = "MS"
     SERVICE = "SS"
     CLIENT = "SC"
+    ACTION_SERVER = "AS"
+    ACTION_CLIENT = "AC"
 
 
 @dataclass
@@ -259,6 +342,7 @@ class GraphData:
         self._entities: dict[str, ParsedEntity] = {}  # Liveliness key -> parsed entity
         self._by_topic: dict[str, list[str]] = {}  # Topic -> [liveliness keys]
         self._by_service: dict[str, list[str]] = {}  # Service -> [liveliness keys]
+        self._by_action: dict[str, list[str]] = {}  # Action -> [liveliness keys]
         self._by_node: dict[str, list[str]] = {}  # Node name -> [liveliness keys]
 
     def insert(self, ke: str) -> None:
@@ -284,7 +368,7 @@ class GraphData:
             self._by_node[entity.node_name] = []
         self._by_node[entity.node_name].append(ke)
 
-        # Index by topic or service for endpoints
+        # Index by topic, service, or action for endpoints
         if entity.kind in (EntityKind.PUBLISHER, EntityKind.SUBSCRIBER):
             if entity.topic is not None:
                 if entity.topic not in self._by_topic:
@@ -295,6 +379,11 @@ class GraphData:
                 if entity.topic not in self._by_service:
                     self._by_service[entity.topic] = []
                 self._by_service[entity.topic].append(ke)
+        elif entity.kind in (EntityKind.ACTION_SERVER, EntityKind.ACTION_CLIENT):
+            if entity.topic is not None:
+                if entity.topic not in self._by_action:
+                    self._by_action[entity.topic] = []
+                self._by_action[entity.topic].append(ke)
 
     def remove(self, ke: str) -> None:
         """Remove a liveliness key and rebuild indexes."""
@@ -307,6 +396,7 @@ class GraphData:
         # Rebuild all indexes from scratch (simpler and correct)
         self._by_topic.clear()
         self._by_service.clear()
+        self._by_action.clear()
         self._by_node.clear()
 
         for key, entity in self._entities.items():
@@ -315,7 +405,7 @@ class GraphData:
                 self._by_node[entity.node_name] = []
             self._by_node[entity.node_name].append(key)
 
-            # Index by topic or service for endpoints
+            # Index by topic, service, or action for endpoints
             if entity.kind in (EntityKind.PUBLISHER, EntityKind.SUBSCRIBER):
                 if entity.topic is not None:
                     if entity.topic not in self._by_topic:
@@ -326,6 +416,11 @@ class GraphData:
                     if entity.topic not in self._by_service:
                         self._by_service[entity.topic] = []
                     self._by_service[entity.topic].append(key)
+            elif entity.kind in (EntityKind.ACTION_SERVER, EntityKind.ACTION_CLIENT):
+                if entity.topic is not None:
+                    if entity.topic not in self._by_action:
+                        self._by_action[entity.topic] = []
+                    self._by_action[entity.topic].append(key)
 
     def visit_by_topic(
         self, topic: str, callback: Callable[[ParsedEntity], None]
@@ -341,6 +436,14 @@ class GraphData:
         """Visit all entities for a given service."""
         if service in self._by_service:
             for key in self._by_service[service]:
+                callback(self._entities[key])
+
+    def visit_by_action(
+        self, action: str, callback: Callable[[ParsedEntity], None]
+    ) -> None:
+        """Visit all entities for a given action."""
+        if action in self._by_action:
+            for key in self._by_action[action]:
                 callback(self._entities[key])
 
     def visit_by_node(
@@ -394,7 +497,8 @@ def get_message_type(identifier: str) -> type[Message]:
     """Get message type from identifier string.
 
     Args:
-        identifier: Type identifier like 'zrm/msgs/geometry/Point' or 'zrm/srvs/std/Trigger.Request'
+        identifier: Type identifier like 'zrm/msgs/geometry/Point',
+                    'zrm/srvs/std/Trigger.Request', or 'zrm/actions/examples/Fibonacci'
 
     Returns:
         Protobuf message class
@@ -403,6 +507,7 @@ def get_message_type(identifier: str) -> type[Message]:
         >>> Point = get_message_type('zrm/msgs/geometry/Point')
         >>> point = Point(x=1.0, y=2.0, z=3.0)
         >>> TriggerRequest = get_message_type('zrm/srvs/std/Trigger.Request')
+        >>> Fibonacci = get_message_type('zrm/actions/examples/Fibonacci')
     """
     parts = identifier.split("/")
     if len(parts) != 4:
@@ -413,8 +518,10 @@ def get_message_type(identifier: str) -> type[Message]:
     package, category, module_name, type_path = parts
 
     # Validate category
-    if category not in ("msgs", "srvs"):
-        raise ValueError(f"Category must be 'msgs' or 'srvs', got '{category}'")
+    if category not in ("msgs", "srvs", "actions"):
+        raise ValueError(
+            f"Category must be 'msgs', 'srvs', or 'actions', got '{category}'"
+        )
 
     # Import module: zrm.msgs.geometry_pb2
     import_path = f"{package}.{category}.{module_name}_pb2"
@@ -786,6 +893,641 @@ class ServiceClient:
         self._lv_token.undeclare()
 
 
+def _generate_goal_id() -> str:
+    """Generate a unique goal ID using UUID4."""
+    return str(uuid.uuid4())
+
+
+class ServerGoalHandle:
+    """Server-side handle for managing a single goal's lifecycle.
+
+    Provides methods to update goal status, publish feedback, and set
+    the final result. The handle tracks whether cancellation has been
+    requested (either by client or by preemption from a new goal).
+    """
+
+    def __init__(
+        self,
+        goal_id: str,
+        goal: Message,
+        action_server: "ActionServer",
+    ):
+        """Create a server goal handle.
+
+        Args:
+            goal_id: Unique identifier for this goal
+            goal: The goal message from the client
+            action_server: Reference to the parent action server
+        """
+        self._goal_id = goal_id
+        self._goal = goal
+        self._action_server = action_server
+        self._status = GoalStatus.PENDING
+        self._cancel_requested = False
+        self._lock = threading.Lock()
+
+    @property
+    def goal_id(self) -> str:
+        """Get the goal ID."""
+        return self._goal_id
+
+    @property
+    def goal(self) -> Message:
+        """Get the goal message."""
+        return self._goal
+
+    @property
+    def status(self) -> GoalStatus:
+        """Get the current goal status."""
+        with self._lock:
+            return self._status
+
+    def is_cancel_requested(self) -> bool:
+        """Check if cancellation has been requested.
+
+        Execute callbacks should check this periodically and cleanly
+        terminate if True.
+        """
+        with self._lock:
+            return self._cancel_requested
+
+    def _request_cancel(self) -> bool:
+        """Request cancellation of this goal (internal use).
+
+        Returns:
+            True if the goal can be canceled, False if already terminal.
+        """
+        with self._lock:
+            if self._status in (
+                GoalStatus.SUCCEEDED,
+                GoalStatus.ABORTED,
+                GoalStatus.CANCELED,
+            ):
+                return False
+            self._cancel_requested = True
+            if self._status == GoalStatus.EXECUTING:
+                self._status = GoalStatus.CANCELING
+            return True
+
+    def set_executing(self) -> None:
+        """Transition the goal to EXECUTING state.
+
+        Should be called at the start of the execute callback.
+        """
+        with self._lock:
+            if self._status != GoalStatus.PENDING:
+                print(f"Warning: Cannot transition to EXECUTING from {self._status}")
+                return
+            self._status = GoalStatus.EXECUTING
+
+    def publish_feedback(self, feedback: Message) -> None:
+        """Publish feedback for this goal.
+
+        Args:
+            feedback: Feedback message to send to clients
+        """
+        self._action_server._publish_feedback(self._goal_id, feedback)
+
+    def set_succeeded(self, result: Message) -> None:
+        """Mark the goal as successfully completed.
+
+        Args:
+            result: Result message to send to clients
+        """
+        with self._lock:
+            if self._status not in (GoalStatus.EXECUTING, GoalStatus.CANCELING):
+                print(f"Warning: Cannot transition to SUCCEEDED from {self._status}")
+                return
+            self._status = GoalStatus.SUCCEEDED
+        self._action_server._publish_result(self._goal_id, GoalStatus.SUCCEEDED, result)
+
+    def set_aborted(self, result: Message) -> None:
+        """Mark the goal as aborted (server-side failure).
+
+        Args:
+            result: Result message to send to clients
+        """
+        with self._lock:
+            if self._status not in (GoalStatus.EXECUTING, GoalStatus.CANCELING):
+                print(f"Warning: Cannot transition to ABORTED from {self._status}")
+                return
+            self._status = GoalStatus.ABORTED
+        self._action_server._publish_result(self._goal_id, GoalStatus.ABORTED, result)
+
+    def set_canceled(self, result: Message) -> None:
+        """Mark the goal as canceled.
+
+        Args:
+            result: Result message to send to clients
+        """
+        with self._lock:
+            if self._status not in (
+                GoalStatus.PENDING,
+                GoalStatus.EXECUTING,
+                GoalStatus.CANCELING,
+            ):
+                print(f"Warning: Cannot transition to CANCELED from {self._status}")
+                return
+            self._status = GoalStatus.CANCELED
+        self._action_server._publish_result(self._goal_id, GoalStatus.CANCELED, result)
+
+
+class ActionServer:
+    """Action server for handling long-running goals with feedback.
+
+    Implements a single-goal policy: only one goal can be active at a time.
+    When a new goal arrives, the current goal is automatically preempted.
+    The execute callback runs in a separate thread.
+    """
+
+    def __init__(
+        self,
+        context: Context,
+        liveliness_key: str,
+        action_name: str,
+        action_type: type[Message],
+        execute_callback: Callable[[ServerGoalHandle], None],
+    ):
+        """Create an action server.
+
+        Args:
+            context: Context containing the Zenoh session
+            liveliness_key: Liveliness key for graph discovery
+            action_name: Action name (e.g., "navigate")
+            action_type: Protobuf action type with nested Goal, Result, Feedback
+            execute_callback: Function called for each goal (runs in separate thread)
+        """
+        self._action_name = clean_topic_name(action_name)
+        self._goal_type = action_type.Goal
+        self._result_type = action_type.Result
+        self._feedback_type = action_type.Feedback
+        self._execute_callback = execute_callback
+        self._session = context.session
+
+        self._current_goal: ServerGoalHandle | None = None
+        self._execute_thread: threading.Thread | None = None
+        self._lock = threading.RLock()
+        self._shutdown = False
+
+        # Declare publishers for feedback and result
+        self._feedback_pub = self._session.declare_publisher(
+            f"{self._action_name}/feedback"
+        )
+        self._result_pub = self._session.declare_publisher(
+            f"{self._action_name}/result"
+        )
+
+        # Declare queryables for goal and cancel
+        self._goal_queryable = self._session.declare_queryable(
+            f"{self._action_name}/goal",
+            self._handle_goal_request,
+        )
+        self._cancel_queryable = self._session.declare_queryable(
+            f"{self._action_name}/cancel",
+            self._handle_cancel_request,
+        )
+
+        # Declare liveliness token for graph discovery
+        self._lv_token = self._session.liveliness().declare_token(liveliness_key)
+
+    def _handle_goal_request(self, query: zenoh.Query) -> None:
+        """Handle incoming goal requests."""
+        try:
+            # Validate request has type metadata
+            if query.attachment is None:
+                query.reply_err(zenoh.ZBytes(b"Missing type metadata"))
+                return
+
+            actual_type_name = query.attachment.to_bytes().decode()
+            expected_type_name = get_type_name(self._goal_type)
+
+            if actual_type_name != expected_type_name:
+                query.reply_err(
+                    zenoh.ZBytes(
+                        f"Type mismatch: expected {expected_type_name}, got {actual_type_name}".encode()
+                    )
+                )
+                return
+
+            # Deserialize goal
+            goal = self._goal_type()
+            goal.ParseFromString(query.payload.to_bytes())
+
+            # Generate goal ID
+            goal_id = _generate_goal_id()
+
+            with self._lock:
+                # Preempt current goal if active
+                if self._current_goal is not None:
+                    self._current_goal._request_cancel()
+
+                # Create new goal handle
+                goal_handle = ServerGoalHandle(goal_id, goal, self)
+                self._current_goal = goal_handle
+
+                # Start execute thread
+                self._execute_thread = threading.Thread(
+                    target=self._execute_goal,
+                    args=(goal_handle,),
+                    daemon=True,
+                )
+                self._execute_thread.start()
+
+            # Reply with goal ID (accepted)
+            query.reply(
+                f"{self._action_name}/goal",
+                zenoh.ZBytes(goal_id.encode()),
+                attachment=zenoh.ZBytes(b"accepted"),
+            )
+
+        except Exception as e:
+            print(f"Error handling goal request: {e}")
+            query.reply_err(zenoh.ZBytes(f"Error: {e}".encode()))
+
+    def _handle_cancel_request(self, query: zenoh.Query) -> None:
+        """Handle cancel requests."""
+        try:
+            goal_id = query.payload.to_bytes().decode()
+
+            with self._lock:
+                if self._current_goal is None or self._current_goal.goal_id != goal_id:
+                    query.reply_err(
+                        zenoh.ZBytes(b"Goal not found or already completed")
+                    )
+                    return
+
+                success = self._current_goal._request_cancel()
+
+            if success:
+                query.reply(
+                    f"{self._action_name}/cancel",
+                    zenoh.ZBytes(b""),
+                    attachment=zenoh.ZBytes(b"ok"),
+                )
+            else:
+                query.reply_err(zenoh.ZBytes(b"Goal already in terminal state"))
+
+        except Exception as e:
+            print(f"Error handling cancel request: {e}")
+            query.reply_err(zenoh.ZBytes(f"Error: {e}".encode()))
+
+    def _execute_goal(self, goal_handle: ServerGoalHandle) -> None:
+        """Execute a goal in a separate thread."""
+        try:
+            self._execute_callback(goal_handle)
+
+            # If callback didn't set a terminal state, abort
+            if goal_handle.status not in (
+                GoalStatus.SUCCEEDED,
+                GoalStatus.ABORTED,
+                GoalStatus.CANCELED,
+            ):
+                print(
+                    f"Warning: Execute callback did not set terminal state, aborting goal {goal_handle.goal_id}"
+                )
+                goal_handle.set_aborted(self._result_type())
+
+        except Exception as e:
+            print(f"Error in execute callback: {e}")
+            try:
+                goal_handle.set_aborted(self._result_type())
+            except Exception:
+                pass
+
+    def _publish_feedback(self, goal_id: str, feedback: Message) -> None:
+        """Publish feedback for a goal."""
+        if not isinstance(feedback, self._feedback_type):
+            raise TypeError(
+                f"Expected feedback of type {self._feedback_type.__name__}, "
+                f"got {type(feedback).__name__}"
+            )
+
+        type_name = get_type_name(feedback)
+        # Attachment format: type|goal_id
+        attachment = zenoh.ZBytes(f"{type_name}|{goal_id}".encode())
+        self._feedback_pub.put(serialize(feedback), attachment=attachment)
+
+    def _publish_result(
+        self, goal_id: str, status: GoalStatus, result: Message
+    ) -> None:
+        """Publish final result for a goal."""
+        if not isinstance(result, self._result_type):
+            raise TypeError(
+                f"Expected result of type {self._result_type.__name__}, "
+                f"got {type(result).__name__}"
+            )
+
+        type_name = get_type_name(result)
+        # Attachment format: type|goal_id|status
+        attachment = zenoh.ZBytes(f"{type_name}|{goal_id}|{status}".encode())
+        self._result_pub.put(serialize(result), attachment=attachment)
+
+    def close(self) -> None:
+        """Close the action server and release resources."""
+        self._shutdown = True
+        self._lv_token.undeclare()
+        self._goal_queryable.undeclare()
+        self._cancel_queryable.undeclare()
+        self._feedback_pub.undeclare()
+        self._result_pub.undeclare()
+
+
+class ClientGoalHandle:
+    """Client-side handle for tracking a submitted goal.
+
+    Provides methods to check status, get results, and cancel the goal.
+    """
+
+    def __init__(
+        self,
+        goal_id: str,
+        action_client: "ActionClient",
+    ):
+        """Create a client goal handle.
+
+        Args:
+            goal_id: Unique identifier for this goal
+            action_client: Reference to the parent action client
+        """
+        self._goal_id = goal_id
+        self._action_client = action_client
+        self._status = GoalStatus.PENDING
+        self._result: Message | None = None
+        self._result_received = threading.Event()
+        self._lock = threading.Lock()
+
+    @property
+    def goal_id(self) -> str:
+        """Get the goal ID."""
+        return self._goal_id
+
+    @property
+    def status(self) -> GoalStatus:
+        """Get the current goal status."""
+        with self._lock:
+            return self._status
+
+    @property
+    def result(self) -> Message | None:
+        """Get the result message (None if not yet received)."""
+        with self._lock:
+            return self._result
+
+    def _update_status(self, status: GoalStatus, result: Message | None = None) -> None:
+        """Update goal status (internal use)."""
+        with self._lock:
+            self._status = status
+            if result is not None:
+                self._result = result
+                self._result_received.set()
+
+    def cancel(self, timeout: float = 5.0) -> bool:
+        """Request cancellation of this goal.
+
+        Args:
+            timeout: Timeout for cancel request in seconds
+
+        Returns:
+            True if cancel was acknowledged, False otherwise
+        """
+        return self._action_client._cancel_goal(self._goal_id, timeout)
+
+    def get_result(self, timeout: float | None = None) -> Message:
+        """Wait for and return the result.
+
+        Args:
+            timeout: Maximum time to wait (None for infinite)
+
+        Returns:
+            The result message
+
+        Raises:
+            TimeoutError: If timeout expires before result received
+            ActionError: If the goal was aborted or canceled
+        """
+        if not self._result_received.wait(timeout):
+            raise TimeoutError(f"Timed out waiting for result on goal {self._goal_id}")
+
+        with self._lock:
+            if self._status == GoalStatus.ABORTED:
+                raise ActionError(f"Goal {self._goal_id} was aborted")
+            if self._status == GoalStatus.CANCELED:
+                raise ActionError(f"Goal {self._goal_id} was canceled")
+            return self._result
+
+    def wait_for_result(self, timeout: float | None = None) -> bool:
+        """Wait for the result to be received.
+
+        Args:
+            timeout: Maximum time to wait (None for infinite)
+
+        Returns:
+            True if result received, False if timeout
+        """
+        return self._result_received.wait(timeout)
+
+
+class ActionClient:
+    """Action client for sending goals and tracking their progress.
+
+    Sends goals to an action server, receives feedback during execution,
+    and gets the final result. Supports cancellation of active goals.
+    """
+
+    def __init__(
+        self,
+        context: Context,
+        liveliness_key: str,
+        action_name: str,
+        action_type: type[Message],
+    ):
+        """Create an action client.
+
+        Args:
+            context: Context containing the Zenoh session
+            liveliness_key: Liveliness key for graph discovery
+            action_name: Action name (e.g., "navigate")
+            action_type: Protobuf action type with nested Goal, Result, Feedback
+        """
+        self._action_name = clean_topic_name(action_name)
+        self._goal_type = action_type.Goal
+        self._result_type = action_type.Result
+        self._feedback_type = action_type.Feedback
+        self._session = context.session
+
+        self._goals: dict[str, ClientGoalHandle] = {}
+        self._feedback_callbacks: dict[str, Callable[[Message], None]] = {}
+        self._lock = threading.Lock()
+
+        # Subscribe to feedback and result
+        self._feedback_sub = self._session.declare_subscriber(
+            f"{self._action_name}/feedback",
+            self._handle_feedback,
+        )
+        self._result_sub = self._session.declare_subscriber(
+            f"{self._action_name}/result",
+            self._handle_result,
+        )
+
+        # Declare liveliness token for graph discovery
+        self._lv_token = self._session.liveliness().declare_token(liveliness_key)
+
+    def _handle_feedback(self, sample: zenoh.Sample) -> None:
+        """Handle incoming feedback messages."""
+        try:
+            if sample.attachment is None:
+                return
+
+            # Parse attachment: type|goal_id
+            attachment_str = sample.attachment.to_bytes().decode()
+            parts = attachment_str.split("|")
+            if len(parts) != 2:
+                return
+
+            type_name, goal_id = parts
+
+            with self._lock:
+                if goal_id not in self._goals:
+                    return
+                callback = self._feedback_callbacks.get(goal_id)
+
+            if callback is not None:
+                # Deserialize feedback
+                feedback = deserialize(sample.payload, self._feedback_type, type_name)
+                callback(feedback)
+
+        except Exception as e:
+            print(f"Error handling feedback: {e}")
+
+    def _handle_result(self, sample: zenoh.Sample) -> None:
+        """Handle incoming result messages."""
+        try:
+            if sample.attachment is None:
+                return
+
+            # Parse attachment: type|goal_id|status
+            attachment_str = sample.attachment.to_bytes().decode()
+            parts = attachment_str.split("|")
+            if len(parts) != 3:
+                return
+
+            type_name, goal_id, status_str = parts
+
+            with self._lock:
+                if goal_id not in self._goals:
+                    return
+                goal_handle = self._goals[goal_id]
+
+            # Deserialize result
+            result = deserialize(sample.payload, self._result_type, type_name)
+            status = GoalStatus(status_str)
+            goal_handle._update_status(status, result)
+
+        except Exception as e:
+            print(f"Error handling result: {e}")
+
+    def send_goal(
+        self,
+        goal: Message,
+        feedback_callback: Callable[[Message], None] | None = None,
+        timeout: float = 5.0,
+    ) -> ClientGoalHandle:
+        """Send a goal to the action server.
+
+        Args:
+            goal: Goal message to send
+            feedback_callback: Optional callback for feedback messages
+            timeout: Timeout for goal acceptance in seconds
+
+        Returns:
+            ClientGoalHandle for tracking the goal
+
+        Raises:
+            TypeError: If goal is wrong type
+            TimeoutError: If server doesn't respond
+            ActionError: If goal is rejected
+        """
+        if not isinstance(goal, self._goal_type):
+            raise TypeError(
+                f"Expected goal of type {self._goal_type.__name__}, "
+                f"got {type(goal).__name__}"
+            )
+
+        # Send goal request
+        type_name = get_type_name(goal)
+        replies = self._session.get(
+            f"{self._action_name}/goal",
+            payload=serialize(goal),
+            attachment=zenoh.ZBytes(type_name.encode()),
+            timeout=timeout,
+        )
+
+        for reply in replies:
+            if reply.ok is None:
+                error_msg = (
+                    reply.err.payload.to_string() if reply.err else "Unknown error"
+                )
+                raise ActionError(f"Goal rejected: {error_msg}")
+
+            # Check attachment for acceptance status
+            if (
+                reply.ok.attachment is None
+                or reply.ok.attachment.to_bytes() != b"accepted"
+            ):
+                attachment_str = (
+                    reply.ok.attachment.to_bytes().decode()
+                    if reply.ok.attachment
+                    else "no attachment"
+                )
+                raise ActionError(f"Goal not accepted: {attachment_str}")
+
+            # Get goal ID from payload
+            goal_id = reply.ok.payload.to_bytes().decode()
+
+            # Create and track goal handle
+            goal_handle = ClientGoalHandle(goal_id, self)
+            with self._lock:
+                self._goals[goal_id] = goal_handle
+                if feedback_callback is not None:
+                    self._feedback_callbacks[goal_id] = feedback_callback
+
+            return goal_handle
+
+        raise TimeoutError(
+            f"Action server '{self._action_name}' did not respond within {timeout} seconds"
+        )
+
+    def _cancel_goal(self, goal_id: str, timeout: float) -> bool:
+        """Send a cancel request for a goal."""
+        try:
+            replies = self._session.get(
+                f"{self._action_name}/cancel",
+                payload=zenoh.ZBytes(goal_id.encode()),
+                attachment=zenoh.ZBytes(b"cancel"),
+                timeout=timeout,
+            )
+
+            for reply in replies:
+                if reply.ok is not None:
+                    return (
+                        reply.ok.attachment is not None
+                        and reply.ok.attachment.to_bytes() == b"ok"
+                    )
+                return False
+
+            return False
+
+        except Exception as e:
+            print(f"Error canceling goal: {e}")
+            return False
+
+    def close(self) -> None:
+        """Close the action client and release resources."""
+        self._lv_token.undeclare()
+        self._feedback_sub.undeclare()
+        self._result_sub.undeclare()
+
+
 class Graph:
     """Graph for discovering and tracking entities in the ZRM network.
 
@@ -986,6 +1728,50 @@ class Graph:
 
         return list(results.items())
 
+    def get_action_names_and_types(self) -> list[tuple[str, str]]:
+        """Get all action names and their types in the network.
+
+        Returns:
+            List of (action_name, type_name) tuples
+        """
+        results: dict[str, str] = {}
+
+        with self._condition:
+            for action_name, keys in self._data._by_action.items():
+                for key in keys:
+                    entity = self._data._entities[key]
+                    if entity.type_name is not None:
+                        results[action_name] = entity.type_name
+                        break  # One type per action
+
+        return list(results.items())
+
+    def get_entities_by_action(
+        self, kind: EntityKind, action: str
+    ) -> list[ParsedEntity]:
+        """Get all entities of a given kind for an action.
+
+        Args:
+            kind: Entity kind (ACTION_SERVER or ACTION_CLIENT)
+            action: Action name
+
+        Returns:
+            List of matching entities
+        """
+        if kind not in (EntityKind.ACTION_SERVER, EntityKind.ACTION_CLIENT):
+            raise ValueError("kind must be ACTION_SERVER or ACTION_CLIENT")
+
+        results: list[ParsedEntity] = []
+
+        def collector(entity: ParsedEntity) -> None:
+            if entity.kind == kind:
+                results.append(entity)
+
+        with self._condition:
+            self._data.visit_by_action(action, collector)
+
+        return results
+
     def get_names_and_types_by_node(
         self,
         node_name: str,
@@ -1092,6 +1878,26 @@ class Graph:
         def predicate() -> bool:
             for key in self._data._by_service.get(service, []):
                 if self._data._entities[key].kind == EntityKind.CLIENT:
+                    return True
+            return False
+
+        with self._condition:
+            return self._condition.wait_for(predicate, timeout=timeout)
+
+    def wait_for_action_server(self, action: str, timeout: float | None = None) -> bool:
+        """Wait until an action server is available.
+
+        Args:
+            action: Action name
+            timeout: Maximum time to wait in seconds, or None for no timeout
+
+        Returns:
+            True if the condition was met, False if timeout occurred
+        """
+
+        def predicate() -> bool:
+            for key in self._data._by_action.get(action, []):
+                if self._data._entities[key].kind == EntityKind.ACTION_SERVER:
                     return True
             return False
 
@@ -1205,21 +2011,7 @@ class Node:
         Returns:
             ServiceServer instance
         """
-        if not isinstance(service_type, type):
-            raise TypeError(
-                f"service_type must be a protobuf message class, got {type(service_type).__name__}"
-            )
-
-        if not hasattr(service_type, "Request"):
-            raise TypeError(
-                f"Service type '{service_type.__name__}' must have a nested 'Request' message"
-            )
-
-        if not hasattr(service_type, "Response"):
-            raise TypeError(
-                f"Service type '{service_type.__name__}' must have a nested 'Response' message"
-            )
-
+        _validate_service_type(service_type)
         service = clean_topic_name(service)
         lv_key = _make_endpoint_lv_key(
             domain_id=self._context.domain_id,
@@ -1245,21 +2037,7 @@ class Node:
         Returns:
             ServiceClient instance
         """
-        if not isinstance(service_type, type):
-            raise TypeError(
-                f"service_type must be a protobuf message class, got {type(service_type).__name__}"
-            )
-
-        if not hasattr(service_type, "Request"):
-            raise TypeError(
-                f"Service type '{service_type.__name__}' must have a nested 'Request' message"
-            )
-
-        if not hasattr(service_type, "Response"):
-            raise TypeError(
-                f"Service type '{service_type.__name__}' must have a nested 'Response' message"
-            )
-
+        _validate_service_type(service_type)
         service = clean_topic_name(service)
         lv_key = _make_endpoint_lv_key(
             domain_id=self._context.domain_id,
@@ -1270,6 +2048,64 @@ class Node:
             type_name=get_type_name(service_type),
         )
         return ServiceClient(self._context, lv_key, service, service_type)
+
+    def create_action_server(
+        self,
+        action_name: str,
+        action_type: type[Message],
+        execute_callback: Callable[[ServerGoalHandle], None],
+    ) -> "ActionServer":
+        """Create an action server for this node.
+
+        Args:
+            action_name: Action name (e.g., "navigate")
+            action_type: Protobuf action type with nested Goal, Result, and Feedback
+            execute_callback: Function called for each goal (runs in separate thread).
+                              Should call goal_handle.set_succeeded(), set_aborted(),
+                              or set_canceled() when done.
+
+        Returns:
+            ActionServer instance
+        """
+        _validate_action_type(action_type)
+        action_name = clean_topic_name(action_name)
+        lv_key = _make_endpoint_lv_key(
+            domain_id=self._context.domain_id,
+            z_id=str(self._context.session.info.zid()),
+            kind=EntityKind.ACTION_SERVER,
+            node_name=self._name,
+            topic=action_name,
+            type_name=get_type_name(action_type),
+        )
+        return ActionServer(
+            self._context, lv_key, action_name, action_type, execute_callback
+        )
+
+    def create_action_client(
+        self,
+        action_name: str,
+        action_type: type[Message],
+    ) -> "ActionClient":
+        """Create an action client for this node.
+
+        Args:
+            action_name: Action name (e.g., "navigate")
+            action_type: Protobuf action type with nested Goal, Result, and Feedback
+
+        Returns:
+            ActionClient instance
+        """
+        _validate_action_type(action_type)
+        action_name = clean_topic_name(action_name)
+        lv_key = _make_endpoint_lv_key(
+            domain_id=self._context.domain_id,
+            z_id=str(self._context.session.info.zid()),
+            kind=EntityKind.ACTION_CLIENT,
+            node_name=self._name,
+            topic=action_name,
+            type_name=get_type_name(action_type),
+        )
+        return ActionClient(self._context, lv_key, action_name, action_type)
 
     def close(self) -> None:
         """Close the node and release all resources."""
