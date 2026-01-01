@@ -1319,6 +1319,8 @@ class ClientGoalHandle:
                 raise ActionError(f"Goal {self._goal_id} was aborted")
             if self._status == GoalStatus.CANCELED:
                 raise ActionError(f"Goal {self._goal_id} was canceled")
+            if self._result is None:
+                raise ActionError(f"Goal {self._goal_id} completed without result")
             return self._result
 
     def wait_for_result(self, timeout: float | None = None) -> bool:
