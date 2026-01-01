@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Example action client that requests Fibonacci sequences."""
 
-import time
-
 import zrm
 from zrm import Node
 from zrm.actions import examples_pb2 as fibonacci_pb2
