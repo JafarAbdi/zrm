@@ -11,7 +11,6 @@ Usage:
 import time
 
 import zrm
-from zrm import Node
 from zrm.srvs import std_pb2 as std_srvs
 
 
@@ -26,7 +25,7 @@ def slow_trigger_callback(
 
 
 def main():
-    node = Node("slow_trigger_server_node")
+    node = zrm.Node("slow_trigger_server_node")
 
     server = node.create_service(
         "slow_trigger",

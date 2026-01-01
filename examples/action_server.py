@@ -4,11 +4,10 @@
 import time
 
 import zrm
-from zrm import Node, ServerGoalHandle
 from zrm.actions import examples_pb2 as fibonacci_pb2
 
 
-def execute_fibonacci(goal_handle: ServerGoalHandle) -> None:
+def execute_fibonacci(goal_handle: zrm.ServerGoalHandle) -> None:
     """Execute callback for the Fibonacci action.
 
     Computes a Fibonacci sequence up to the requested order,
@@ -53,7 +52,7 @@ def execute_fibonacci(goal_handle: ServerGoalHandle) -> None:
 
 def main():
     # Create node
-    node = Node("fibonacci_action_server")
+    node = zrm.Node("fibonacci_action_server")
 
     # Create action server via node factory method
     server = node.create_action_server(

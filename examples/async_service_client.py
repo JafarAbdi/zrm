@@ -15,12 +15,11 @@ Then run this client:
 import time
 
 import zrm
-from zrm import Node
 from zrm.srvs import std_pb2 as std_srvs
 
 
 def main():
-    node = Node("async_service_client_node")
+    node = zrm.Node("async_service_client_node")
     client = node.create_client("slow_trigger", std_srvs.Trigger)
 
     print("Waiting for slow_trigger service...")

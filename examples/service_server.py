@@ -4,7 +4,6 @@
 import time
 
 import zrm
-from zrm import Node
 from zrm.srvs import examples_pb2 as example_srvs
 from zrm.srvs import std_pb2 as std_srvs
 
@@ -28,7 +27,7 @@ def trigger_callback(
 
 def main():
     # Create node
-    node = Node("service_server_node")
+    node = zrm.Node("service_server_node")
 
     # Create service server via node factory method
     server = node.create_service(

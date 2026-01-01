@@ -4,13 +4,12 @@
 import time
 
 import zrm
-from zrm import Node
 from zrm.srvs import examples_pb2 as example_srvs
 
 
 def main():
     # Create node
-    node = Node("service_client_node")
+    node = zrm.Node("service_client_node")
 
     # Create service client via node factory method
     client = node.create_client(
