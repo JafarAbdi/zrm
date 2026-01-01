@@ -2,7 +2,6 @@
 """Example action client that requests Fibonacci sequences."""
 
 import zrm
-from zrm import Node
 from zrm.actions import examples_pb2 as fibonacci_pb2
 
 
@@ -13,7 +12,7 @@ def feedback_callback(feedback: fibonacci_pb2.Fibonacci.Feedback) -> None:
 
 def main():
     # Create node
-    node = Node("fibonacci_action_client")
+    node = zrm.Node("fibonacci_action_client")
 
     # Create action client via node factory method
     client = node.create_action_client(

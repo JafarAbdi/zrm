@@ -5,13 +5,12 @@ import time
 import math
 
 import zrm
-from zrm import Node
 from zrm.msgs import geometry_pb2 as geometry_msgs
 
 
 def main():
     # Create node
-    node = Node("talker_node")
+    node = zrm.Node("talker_node")
 
     # Create publisher via node factory method
     pub = node.create_publisher("robot/pose", geometry_msgs.Pose2D)

@@ -4,7 +4,6 @@
 import time
 
 import zrm
-from zrm import Node
 from zrm.msgs import geometry_pb2 as geometry_msgs
 
 
@@ -15,7 +14,7 @@ def pose_callback(msg: geometry_msgs.Pose2D):
 
 def main():
     # Create node
-    node = Node("listener_node")
+    node = zrm.Node("listener_node")
 
     # Create subscriber via node factory method
     sub = node.create_subscriber(
