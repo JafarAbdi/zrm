@@ -1,6 +1,6 @@
 [project]
 name            = "zrm"
-version         = "1.4.0"
+version         = "2.0.0"
 description     = "A minimal, single-file communication middleware built on Zenoh"
 readme          = "README.md"
 requires-python = ">=3.10"
@@ -19,10 +19,7 @@ classifiers = [
   "Topic :: System :: Networking",
 ]
 
-dependencies = [
-    "eclipse-zenoh>=1.6.2",
-    "protobuf>=6.33.0",
-]
+dependencies = ["eclipse-zenoh>=1.6.2", "protobuf>=6.33.0"]
 
 [project.urls]
 Homepage   = "https://github.com/JafarAbdi/zrm"
