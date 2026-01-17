@@ -66,6 +66,47 @@ See `examples/` for complete working examples including services, actions with f
 ---
 
 <details>
+<summary><b>Configuration</b></summary>
+
+### Environment Variables
+
+ZRM checks environment variables for Zenoh configuration (priority order):
+
+1. `ZRM_CONFIG_FILE` - path to a JSON5 config file
+2. `ZRM_CONFIG` - inline JSON5 config string
+3. `ZENOH_CONFIG` - Zenoh's native config file path
+
+```bash
+# Inline config
+export ZRM_CONFIG='{ mode: "peer", listen: { endpoints: ["tcp/0.0.0.0:0#iface=enp8s0"] } }'
+
+# Or with multicast discovery
+export ZRM_CONFIG='{
+  mode: "peer",
+  listen: { endpoints: ["tcp/0.0.0.0:0#iface=enp8s0"] },
+  scouting: { multicast: { enabled: true, interface: "enp8s0" } }
+}'
+
+# Or from a file
+export ZRM_CONFIG_FILE=/path/to/config.json5
+```
+
+### Programmatic Configuration
+
+```python
+import zenoh
+import zrm
+
+config = zenoh.Config()
+config.insert_json5("mode", "'peer'")
+config.insert_json5("listen/endpoints", "['tcp/0.0.0.0:0#iface=enp8s0']")
+
+zrm.init(config)
+node = zrm.Node("my_node")
+```
+</details>
+
+<details>
 <summary><b>Services</b></summary>
 
 Services use nested Request/Response messages:

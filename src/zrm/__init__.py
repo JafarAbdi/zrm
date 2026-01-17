@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pathlib
 import sys
 import threading
@@ -12,7 +13,13 @@ from dataclasses import dataclass
 import enum
 
 import zenoh
+
+
 from google.protobuf.message import Message
+
+# Environment variable names for configuration
+ZRM_CONFIG_FILE_ENV = "ZRM_CONFIG_FILE"
+ZRM_CONFIG_ENV = "ZRM_CONFIG"
 
 # StrEnum was added in Python 3.11
 if sys.version_info >= (3, 11):
@@ -165,6 +172,41 @@ _global_context: "Context | None" = None
 _context_lock = threading.Lock()
 
 
+def _load_config_from_env() -> zenoh.Config | None:
+    """Load Zenoh configuration from environment variables.
+
+    Priority order:
+        1. ZRM_CONFIG_FILE - path to a JSON5 config file
+        2. ZRM_CONFIG - inline JSON5 config string
+        3. ZENOH_CONFIG - Zenoh's native config file path (via Config.from_env())
+
+    Returns:
+        zenoh.Config if environment variable is set, None otherwise
+
+    Raises:
+        FileNotFoundError: If config file path points to non-existent file
+        ValueError: If config parsing fails
+    """
+    config_file = os.environ.get(ZRM_CONFIG_FILE_ENV)
+    if config_file:
+        path = pathlib.Path(config_file)
+        if not path.exists():
+            raise FileNotFoundError(
+                f"{ZRM_CONFIG_FILE_ENV} points to non-existent file: {config_file}"
+            )
+        return zenoh.Config.from_file(config_file)
+
+    config_str = os.environ.get(ZRM_CONFIG_ENV)
+    if config_str:
+        return zenoh.Config.from_json5(config_str)
+
+    # Fall back to Zenoh's native ZENOH_CONFIG env var
+    if os.environ.get("ZENOH_CONFIG"):
+        return zenoh.Config.from_env()
+
+    return None
+
+
 class Context:
     """Context holds the Zenoh session and domain configuration."""
 
@@ -172,11 +214,16 @@ class Context:
         """Create a new context.
 
         Args:
-            config: Optional Zenoh configuration (defaults to zenoh.Config())
+            config: Optional Zenoh configuration. If None, checks ZRM_CONFIG_FILE,
+                    ZRM_CONFIG, and ZENOH_CONFIG environment variables before
+                    using default.
             domain_id: Domain ID for this context (default: DOMAIN_ID constant = 0)
         """
         zenoh.init_log_from_env_or("error")
-        self._session = zenoh.open(config if config is not None else zenoh.Config())
+        effective_config = config if config is not None else _load_config_from_env()
+        self._session = zenoh.open(
+            effective_config if effective_config is not None else zenoh.Config()
+        )
         self._domain_id = domain_id
 
     @property
@@ -2324,8 +2371,16 @@ def init(config: zenoh.Config | None = None, domain_id: int = DOMAIN_ID) -> None
 
     If already initialized, this is a no-op (idempotent).
 
+    Configuration priority (first match wins):
+        1. Explicit config argument
+        2. ZRM_CONFIG_FILE environment variable (path to JSON5 file)
+        3. ZRM_CONFIG environment variable (inline JSON5 string)
+        4. ZENOH_CONFIG environment variable (Zenoh's native config file path)
+        5. Default zenoh.Config()
+
     Args:
-        config: Optional Zenoh configuration (defaults to zenoh.Config())
+        config: Optional Zenoh configuration. If None, environment variables
+                are checked before falling back to default.
         domain_id: Domain ID for the context (default: DOMAIN_ID constant = 0)
     """
     global _global_context
