@@ -1,6 +1,6 @@
 [project]
 name            = "zrm"
-version         = "2.0.0"
+version         = "2.1.0"
 description     = "A minimal, single-file communication middleware built on Zenoh"
 readme          = "README.md"
 requires-python = ">=3.10"
