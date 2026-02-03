@@ -18,24 +18,26 @@ https://github.com/user-attachments/assets/3e41d9a7-f553-457b-a879-cae2af45bf63
 pip install zrm
 ```
 
+Requires Python 3.11+.
+
 ## Quick Start
 
 ```python
 import zrm
 from zrm.msgs import geometry_pb2
 
-node = zrm.Node("my_node")
+with zrm.open(name="my_session") as session:
+    # Publish
+    pub = zrm.Publisher(session, "robot/pose", geometry_pb2.Pose2D)
+    pub.publish(geometry_pb2.Pose2D(x=1.0, y=2.0, theta=0.5))
 
-# Publish
-pub = node.create_publisher("robot/pose", geometry_pb2.Pose2D)
-pub.publish(geometry_pb2.Pose2D(x=1.0, y=2.0, theta=0.5))
+    # Subscribe
+    sub = zrm.Subscriber(session, "robot/pose", geometry_pb2.Pose2D)
+    if pose := sub.latest():
+        print(f"Position: x={pose.x}, y={pose.y}")
 
-# Subscribe
-sub = node.create_subscriber("robot/pose", geometry_pb2.Pose2D)
-if pose := sub.latest():
-    print(f"Position: x={pose.x}, y={pose.y}")
-
-node.close()
+    pub.close()
+    sub.close()
 ```
 
 **Protobuf definition:**
@@ -52,16 +54,16 @@ message Pose2D {
 ```bash
 zrm-topic list                    # List topics
 zrm-topic echo robot/pose         # Echo messages
+zrm-topic pub robot/pose 'x: 1.0' # Publish to topic
+zrm-topic hz robot/pose           # Measure frequency
 zrm-service list                  # List services
 zrm-service call add 'a: 1 b: 2'  # Call service
-zrm-action list                   # List actions
-zrm-action send fib 'order: 10'   # Send action goal
-zrm-node list                     # List nodes
+zrm-session list                  # List sessions
 ```
 
 ## More Examples
 
-See `examples/` for complete working examples including services, actions with feedback/cancellation, and graph discovery.
+See `examples/` for complete working examples including services and graph discovery.
 
 ---
 
@@ -101,8 +103,8 @@ config = zenoh.Config()
 config.insert_json5("mode", "'peer'")
 config.insert_json5("listen/endpoints", "['tcp/0.0.0.0:0#iface=enp8s0']")
 
-zrm.init(config)
-node = zrm.Node("my_node")
+with zrm.open(config) as session:
+    pub = zrm.Publisher(session, "robot/pose", geometry_pb2.Pose2D)
 ```
 </details>
 
@@ -118,14 +120,15 @@ from zrm.srvs import examples_pb2
 def add_callback(req):
     return examples_pb2.AddTwoInts.Response(sum=req.a + req.b)
 
-node = zrm.Node("service_node")
-server = node.create_service("add_two_ints", examples_pb2.AddTwoInts, add_callback)
-client = node.create_client("add_two_ints", examples_pb2.AddTwoInts)
+with zrm.open(name="service_example") as session:
+    server = zrm.Server(session, "add_two_ints", examples_pb2.AddTwoInts, add_callback)
+    client = zrm.Client(session, "add_two_ints", examples_pb2.AddTwoInts)
 
-response = client.call(examples_pb2.AddTwoInts.Request(a=5, b=3))
-print(f"Sum: {response.sum}")  # Output: 8
+    response = client.call(examples_pb2.AddTwoInts.Request(a=5, b=3), timeout=5.0)
+    print(f"Sum: {response.sum}")  # Output: 8
 
-node.close()
+    server.close()
+    client.close()
 ```
 
 **Protobuf definition:**
@@ -138,46 +141,33 @@ message AddTwoInts {
 </details>
 
 <details>
-<summary><b>Actions</b></summary>
+<summary><b>Graph Discovery</b></summary>
 
-Actions support long-running goals with feedback and cancellation:
+Discover topics, services, publishers, and subscribers in the network:
 
 ```python
 import zrm
-from zrm.actions import examples_pb2
 
-def execute_fibonacci(goal_handle: zrm.ServerGoalHandle) -> None:
-    goal_handle.execute()
-    sequence = [0, 1]
-    for i in range(1, goal_handle.goal.order):
-        if goal_handle.cancel_requested:
-            goal_handle.cancel(examples_pb2.Fibonacci.Result(sequence=sequence))
-            return
-        sequence.append(sequence[i] + sequence[i - 1])
-        goal_handle.publish_feedback(examples_pb2.Fibonacci.Feedback(partial_sequence=sequence))
-    goal_handle.succeed(examples_pb2.Fibonacci.Result(sequence=sequence))
+with zrm.open(name="discovery") as session:
+    graph = zrm.Graph(session)
 
-node = zrm.Node("action_node")
-server = node.create_action_server("fibonacci", examples_pb2.Fibonacci, execute_fibonacci)
-client = node.create_action_client("fibonacci", examples_pb2.Fibonacci)
+    # Get all topics and services
+    topics = graph.get_topics()      # [(name, type), ...]
+    services = graph.get_services()  # [(name, type), ...]
 
-goal_handle = client.send_goal(
-    examples_pb2.Fibonacci.Goal(order=10),
-    feedback_callback=lambda fb: print(f"Progress: {list(fb.partial_sequence)}")
-)
-result = goal_handle.get_result(timeout=30.0)
-print(f"Result: {list(result.sequence)}")
+    # Get publishers/subscribers for a topic
+    pubs = graph.get_publishers("robot/pose")
+    subs = graph.get_subscribers("robot/pose")
 
-node.close()
-```
+    # Get servers/clients for a service
+    servers = graph.get_servers("add_two_ints")
+    clients = graph.get_clients("add_two_ints")
 
-**Protobuf definition:**
-```protobuf
-message Fibonacci {
-  message Goal { int32 order = 1; }
-  message Result { repeated int32 sequence = 1; }
-  message Feedback { repeated int32 partial_sequence = 1; }
-}
+    # Wait for entities to appear
+    graph.wait_for_publisher("robot/pose", timeout=5.0)
+    graph.wait_for_server("add_two_ints", timeout=5.0)
+
+    graph.close()
 ```
 </details>
 
@@ -190,11 +180,9 @@ message Fibonacci {
 src/<package>/
 ├── proto/                 # Proto definitions
 │   ├── msgs/              # Message definitions
-│   ├── srvs/              # Service definitions
-│   └── actions/           # Action definitions
+│   └── srvs/              # Service definitions
 ├── msgs/                  # Auto-generated *_pb2.py
-├── srvs/                  # Auto-generated *_pb2.py
-└── actions/               # Auto-generated *_pb2.py
+└── srvs/                  # Auto-generated *_pb2.py
 ```
 
 ### Generating Python Code
@@ -214,7 +202,6 @@ zrm-proto --dep zrm    # Include dependency protos
 | Messages | `zrm.msgs.vision_pb2` | Point2D, BoundingBox2D |
 | Services | `zrm.srvs.std_pb2` | Trigger |
 | Services | `zrm.srvs.examples_pb2` | AddTwoInts |
-| Actions | `zrm.actions.examples_pb2` | Fibonacci |
 </details>
 
 <details>

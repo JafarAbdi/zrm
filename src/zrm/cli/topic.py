@@ -10,269 +10,207 @@ from google.protobuf import text_format
 import zrm
 
 
-# ANSI color codes
-class Color:
-    """ANSI color codes for terminal output."""
+class Style:
+    """ANSI styles for terminal output."""
 
-    HEADER = "\033[95m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
     BLUE = "\033[94m"
     CYAN = "\033[96m"
     GREEN = "\033[92m"
     YELLOW = "\033[93m"
     RED = "\033[91m"
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
+    R = "\033[0m"
 
 
-def get_topic_type_from_graph(node: zrm.Node, topic: str) -> str | None:
-    """Get the message type for a topic from the graph.
-
-    Args:
-        node: Node instance with graph access
-        topic: Topic name
-
-    Returns:
-        Full protobuf type name
-
-    Raises:
-        ValueError: If topic is not found in the graph
-    """
-    topic = zrm.clean_topic_name(topic)
-    topics = node.graph.get_topic_names_and_types()
-    for topic_name, type_name in topics:
+def _discover_type(graph: zrm.Graph, topic: str) -> str | None:
+    """Get the message type for a topic from the graph."""
+    for topic_name, type_name in graph.get_topics():
         if topic_name == topic:
             return type_name
-
     return None
+
+
+def _resolve_type(graph: zrm.Graph, topic: str, msg_type_name: str | None) -> str:
+    """Resolve message type: use provided or auto-discover from graph."""
+    if msg_type_name is not None:
+        return msg_type_name
+
+    discovered = _discover_type(graph, topic)
+    if discovered is None:
+        print(f"{Style.YELLOW}Topic not found. Specify type with --type{Style.R}")
+        graph.close()
+        sys.exit(1)
+
+    print(f"{Style.DIM}Type: {discovered}{Style.R}")
+    return discovered
+
+
+def _load_msg_type(graph: zrm.Graph, type_name: str) -> type:
+    """Load a protobuf message type by name, exit on failure."""
+    try:
+        return zrm.get_message_type(type_name)
+    except (ImportError, AttributeError, ValueError) as e:
+        print(f"{Style.RED}Error loading message type: {e}{Style.R}")
+        graph.close()
+        sys.exit(1)
 
 
 def list_topics():
     """List all topics in the ZRM network."""
-    # Create a temporary node for graph access
-    node = zrm.Node("_zrm_cli_topic")
+    with zrm.open(name="_zrm_cli") as session:
+        graph = zrm.Graph(session)
+        topics = graph.get_topics()
 
-    # Get all topics with their types
-    topics = node.graph.get_topic_names_and_types()
+        if not topics:
+            print(f"{Style.YELLOW}No topics found in the network{Style.R}")
+            graph.close()
+            return
 
-    if not topics:
-        print(f"{Color.YELLOW}No topics found in the network{Color.RESET}")
-        node.close()
-        return
+        for topic_name, type_name in sorted(topics):
+            print(f"{Style.BOLD}{Style.GREEN}{topic_name}{Style.R}")
+            print(f"  Type: {Style.DIM}{type_name}{Style.R}")
 
-    print(f"{Color.BOLD}{Color.CYAN}=== ZRM Topics ==={Color.RESET}\n")
+            publishers = graph.get_publishers(topic_name)
+            if publishers:
+                names = [e.name for e in publishers]
+                print(
+                    f"  Publishers: {Style.CYAN}{len(names)}{Style.R} {Style.DIM}{names}{Style.R}"
+                )
 
-    for topic_name, type_name in sorted(topics):
-        print(f"{Color.BOLD}{Color.GREEN}{topic_name}{Color.RESET}")
-        print(f"  Type: {Color.DIM}{type_name}{Color.RESET}")
+            subscribers = graph.get_subscribers(topic_name)
+            if subscribers:
+                names = [e.name for e in subscribers]
+                print(
+                    f"  Subscribers: {Style.BLUE}{len(names)}{Style.R} {Style.DIM}{names}{Style.R}"
+                )
 
-        # Get publishers for this topic
-        publishers = node.graph.get_entities_by_topic(
-            zrm.EntityKind.PUBLISHER, topic_name
-        )
-        if publishers:
-            pub_nodes = [e.node_name for e in publishers]
-            pub_count = len(pub_nodes)
-            print(
-                f"  Publishers: {Color.CYAN}{pub_count}{Color.RESET} {Color.DIM}{pub_nodes}{Color.RESET}"
-            )
+            print()
 
-        # Get subscribers for this topic
-        subscribers = node.graph.get_entities_by_topic(
-            zrm.EntityKind.SUBSCRIBER, topic_name
-        )
-        if subscribers:
-            sub_nodes = [e.node_name for e in subscribers]
-            sub_count = len(sub_nodes)
-            print(
-                f"  Subscribers: {Color.BLUE}{sub_count}{Color.RESET} {Color.DIM}{sub_nodes}{Color.RESET}"
-            )
-
-        print()  # Empty line between topics
-
-    node.close()
+        graph.close()
 
 
 def pub_topic(topic: str, msg_type_name: str | None, data: str, rate: float):
-    """Publish messages to a topic.
-
-    Args:
-        topic: Topic name to publish to
-        msg_type_name: Protobuf message type name (auto-discovered if None)
-        data: Message data in protobuf text format
-        rate: Publishing rate in Hz
-    """
-    node = zrm.Node("_zrm_cli_pub")
-
-    # Auto-discover type if not provided
-    if (
-        msg_type_name is None
-        and (msg_type_name := get_topic_type_from_graph(node, topic)) is None
-    ):
+    """Publish messages to a topic."""
+    if topic.startswith("/"):
         print(
-            f"{Color.YELLOW}Hint: Topic not found. You must specify the type with --type{Color.RESET}"
+            f"{Style.RED}Topic cannot start with '/'. Use '{topic.lstrip('/')}' instead.{Style.R}"
         )
-        node.close()
-        sys.exit(1)
-    print(f"{Color.DIM}Auto-discovered type: {msg_type_name}{Color.RESET}")
-
-    try:
-        msg_type = zrm.get_message_type(msg_type_name)
-    except (ImportError, AttributeError, ValueError) as e:
-        print(f"{Color.RED}Error loading message type: {e}{Color.RESET}")
-        print(
-            f"{Color.YELLOW}Hint: Type format should be 'package/category/module/Type' (e.g., 'zrm/msgs/geometry/Pose2D'){Color.RESET}"
-        )
-        node.close()
         sys.exit(1)
 
-    # Parse the message from text format
-    msg = msg_type()
-    try:
-        text_format.Parse(data, msg)
-    except text_format.ParseError as e:
-        print(f"{Color.RED}Error parsing message data: {e}{Color.RESET}")
-        node.close()
-        sys.exit(1)
+    with zrm.open(name="_zrm_cli") as session:
+        graph = zrm.Graph(session)
+        msg_type_name = _resolve_type(graph, topic, msg_type_name)
+        msg_type = _load_msg_type(graph, msg_type_name)
 
-    # Create publisher
-    pub = node.create_publisher(topic, msg_type)
+        msg = msg_type()
+        try:
+            text_format.Parse(data, msg)
+        except text_format.ParseError as e:
+            print(f"{Style.RED}Error parsing message data: {e}{Style.R}")
+            graph.close()
+            sys.exit(1)
 
-    print(
-        f"{Color.GREEN}Publishing to {Color.BOLD}{topic}{Color.RESET}{Color.GREEN} at {rate} Hz{Color.RESET}"
-    )
-    print(f"{Color.DIM}Press Ctrl+C to stop{Color.RESET}\n")
+        pub = zrm.Publisher(session, topic, msg_type)
 
-    try:
-        interval = 1.0 / rate
-        while True:
-            pub.publish(msg)
-            print(
-                f"{Color.DIM}Published: {text_format.MessageToString(msg, as_one_line=True)}{Color.RESET}"
-            )
-            time.sleep(interval)
-    except KeyboardInterrupt:
-        print(f"\n{Color.YELLOW}Stopped publishing{Color.RESET}")
-    finally:
-        pub.close()
-        node.close()
+        print(f"Publishing to {Style.BOLD}{topic}{Style.R} at {rate} Hz")
+
+        try:
+            interval = 1.0 / rate
+            while True:
+                pub.publish(msg)
+                print(
+                    f"{Style.DIM}{text_format.MessageToString(msg, as_one_line=True)}{Style.R}"
+                )
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            pub.close()
+            graph.close()
 
 
 def echo_topic(topic: str, msg_type_name: str | None):
-    """Echo messages from a topic.
-
-    Args:
-        topic: Topic name to subscribe to
-        msg_type_name: Protobuf message type name (auto-discovered if None)
-    """
-    node = zrm.Node("_zrm_cli_echo")
-
-    # Auto-discover type if not provided
-    if (
-        msg_type_name is None
-        and (msg_type_name := get_topic_type_from_graph(node, topic)) is None
-    ):
+    """Echo messages from a topic."""
+    if topic.startswith("/"):
         print(
-            f"{Color.YELLOW}Hint: Topic not found. You must specify the type with --type{Color.RESET}"
+            f"{Style.RED}Topic cannot start with '/'. Use '{topic.lstrip('/')}' instead.{Style.R}"
         )
-        node.close()
-        sys.exit(1)
-    print(f"{Color.DIM}Auto-discovered type: {msg_type_name}{Color.RESET}\n")
-
-    try:
-        msg_type = zrm.get_message_type(msg_type_name)
-    except (ImportError, AttributeError, ValueError) as e:
-        print(f"{Color.RED}Error loading message type: {e}{Color.RESET}")
-        print(
-            f"{Color.YELLOW}Hint: Type format should be 'package/category/module/Type' (e.g., 'zrm/msgs/geometry/Pose2D'){Color.RESET}"
-        )
-        node.close()
         sys.exit(1)
 
-    def callback(msg):
-        print(f"{Color.CYAN}{topic}:{Color.RESET}")
-        # Use text_format to print all fields including defaults
-        print(f"{Color.DIM}{text_format.MessageToString(msg)}{Color.RESET}")
+    with zrm.open(name="_zrm_cli") as session:
+        graph = zrm.Graph(session)
+        msg_type_name = _resolve_type(graph, topic, msg_type_name)
+        msg_type = _load_msg_type(graph, msg_type_name)
 
-    sub = node.create_subscriber(topic, msg_type, callback=callback)
+        publishers = graph.get_publishers(topic)
+        if publishers:
+            names = ", ".join(e.name for e in publishers)
+            print(f"{Style.DIM}Publishers: {names}{Style.R}")
 
-    print(
-        f"{Color.GREEN}Listening to {Color.BOLD}{topic}{Color.RESET}{Color.GREEN} [{msg_type_name}]{Color.RESET}"
-    )
-    print(f"{Color.DIM}Press Ctrl+C to stop{Color.RESET}\n")
+        def callback(msg):
+            print(f"{Style.BOLD}{topic}{Style.R}")
+            print(f"{Style.DIM}{text_format.MessageToString(msg)}{Style.R}", end="")
 
-    try:
-        while True:
-            time.sleep(0.1)
-    except KeyboardInterrupt:
-        print(f"\n{Color.YELLOW}Stopped listening{Color.RESET}")
-    finally:
-        sub.close()
-        node.close()
+        sub = zrm.Subscriber(session, topic, msg_type, callback=callback)
+
+        print(f"Listening to {Style.BOLD}{topic}{Style.R}\n")
+
+        try:
+            while True:
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            sub.close()
+            graph.close()
 
 
 def hz_topic(topic: str, msg_type_name: str | None, window: int):
-    """Measure message frequency on a topic.
-
-    Args:
-        topic: Topic name to measure
-        msg_type_name: Protobuf message type name (auto-discovered if None)
-        window: Window size for averaging (number of messages)
-    """
-    node = zrm.Node("_zrm_cli_hz")
-
-    # Auto-discover type if not provided
-    if (
-        msg_type_name is None
-        and (msg_type_name := get_topic_type_from_graph(node, topic)) is None
-    ):
+    """Measure message frequency on a topic."""
+    if topic.startswith("/"):
         print(
-            f"{Color.YELLOW}Hint: Topic not found. You must specify the type with --type{Color.RESET}"
+            f"{Style.RED}Topic cannot start with '/'. Use '{topic.lstrip('/')}' instead.{Style.R}"
         )
-        node.close()
-        sys.exit(1)
-    print(f"{Color.DIM}Auto-discovered type: {msg_type_name}{Color.RESET}\n")
-
-    try:
-        msg_type = zrm.get_message_type(msg_type_name)
-    except (ImportError, AttributeError, ValueError) as e:
-        print(f"{Color.RED}Error loading message type: {e}{Color.RESET}")
-        print(
-            f"{Color.YELLOW}Hint: Type format should be 'package/category/module/Type' (e.g., 'zrm/msgs/geometry/Pose2D'){Color.RESET}"
-        )
-        node.close()
         sys.exit(1)
 
-    timestamps = []
+    with zrm.open(name="_zrm_cli") as session:
+        graph = zrm.Graph(session)
+        msg_type_name = _resolve_type(graph, topic, msg_type_name)
+        msg_type = _load_msg_type(graph, msg_type_name)
 
-    def callback(msg):
-        timestamps.append(time.time())
-        if len(timestamps) > window:
-            timestamps.pop(0)
+        publishers = graph.get_publishers(topic)
+        if publishers:
+            names = ", ".join(e.name for e in publishers)
+            print(f"{Style.DIM}Publishers: {names}{Style.R}")
 
-        if len(timestamps) >= 2:
-            time_span = timestamps[-1] - timestamps[0]
-            msg_count = len(timestamps) - 1
-            hz = msg_count / time_span if time_span > 0 else 0
-            print(
-                f"{Color.CYAN}Rate: {Color.BOLD}{hz:.2f} Hz{Color.RESET} {Color.DIM}(avg over {msg_count} messages){Color.RESET}"
-            )
+        timestamps: list[float] = []
 
-    sub = node.create_subscriber(topic, msg_type, callback=callback)
+        def callback(msg):
+            timestamps.append(time.time())
+            if len(timestamps) > window:
+                timestamps.pop(0)
 
-    print(
-        f"{Color.GREEN}Measuring rate on {Color.BOLD}{topic}{Color.RESET}{Color.GREEN} [{msg_type_name}]{Color.RESET}"
-    )
-    print(f"{Color.DIM}Press Ctrl+C to stop{Color.RESET}\n")
+            if len(timestamps) >= 2:
+                time_span = timestamps[-1] - timestamps[0]
+                msg_count = len(timestamps) - 1
+                hz = msg_count / time_span if time_span > 0 else 0
+                print(
+                    f"  {Style.BOLD}{hz:.2f} Hz{Style.R}  {Style.DIM}(avg of {msg_count}){Style.R}"
+                )
 
-    try:
-        while True:
-            time.sleep(0.1)
-    except KeyboardInterrupt:
-        print(f"\n{Color.YELLOW}Stopped measuring{Color.RESET}")
-    finally:
-        sub.close()
-        node.close()
+        sub = zrm.Subscriber(session, topic, msg_type, callback=callback)
+
+        print(f"Measuring {Style.BOLD}{topic}{Style.R}\n")
+
+        try:
+            while True:
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            sub.close()
+            graph.close()
 
 
 def main():
@@ -284,10 +222,8 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
-    # List command
     subparsers.add_parser("list", help="List all topics in the network")
 
-    # Pub command
     pub_parser = subparsers.add_parser("pub", help="Publish messages to a topic")
     pub_parser.add_argument("topic", help="Topic name")
     pub_parser.add_argument("data", help="Message data in protobuf text format")
@@ -305,7 +241,6 @@ def main():
         help="Publishing rate in Hz (default: 1.0)",
     )
 
-    # Echo command
     echo_parser = subparsers.add_parser("echo", help="Echo messages from a topic")
     echo_parser.add_argument("topic", help="Topic name")
     echo_parser.add_argument(
@@ -315,7 +250,6 @@ def main():
         help="Message type (e.g., zrm/msgs/geometry/Pose2D). Auto-discovered if not specified.",
     )
 
-    # Hz command
     hz_parser = subparsers.add_parser("hz", help="Measure message frequency on a topic")
     hz_parser.add_argument("topic", help="Topic name")
     hz_parser.add_argument(
@@ -348,8 +282,7 @@ def main():
                 parser.print_help()
                 sys.exit(1)
     except Exception as e:
-        print(f"{Color.RED}Error: {e}{Color.RESET}")
-        zrm.shutdown()
+        print(f"{Style.RED}Error: {e}{Style.R}")
         sys.exit(1)
 
 

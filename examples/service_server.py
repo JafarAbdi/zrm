@@ -4,53 +4,49 @@
 import time
 
 import zrm
-from zrm.srvs import examples_pb2 as example_srvs
-from zrm.srvs import std_pb2 as std_srvs
+from zrm.srvs import examples_pb2
+from zrm.srvs import std_pb2
 
 
 def add_callback(
-    req: example_srvs.AddTwoInts.Request,
-) -> example_srvs.AddTwoInts.Response:
+    req: examples_pb2.AddTwoInts.Request,
+) -> examples_pb2.AddTwoInts.Response:
     """Callback function that handles the service request."""
     result = req.a + req.b
     print(f"Request: {req.a} + {req.b} = {result}")
-    return example_srvs.AddTwoInts.Response(sum=result)
+    return examples_pb2.AddTwoInts.Response(sum=result)
 
 
 def trigger_callback(
-    req: std_srvs.Trigger.Request,
-) -> std_srvs.Trigger.Response:
+    req: std_pb2.Trigger.Request,
+) -> std_pb2.Trigger.Response:
     """Callback function that handles the trigger request."""
     print("Trigger received")
-    return std_srvs.Trigger.Response(success=True, message="Triggered successfully")
+    return std_pb2.Trigger.Response(success=True, message="Triggered successfully")
 
 
 def main():
-    # Create node
-    node = zrm.Node("service_server_node")
+    with zrm.open(name="service_server") as session:
+        add_server = zrm.Server(
+            session, "add_two_ints", examples_pb2.AddTwoInts, add_callback
+        )
+        trigger_server = zrm.Server(
+            session, "trigger", std_pb2.Trigger, trigger_callback
+        )
 
-    # Create service server via node factory method
-    server = node.create_service(
-        "add_two_ints",
-        example_srvs.AddTwoInts,
-        add_callback,
-    )
-    trigger_server = node.create_service(
-        "trigger",
-        std_srvs.Trigger,
-        trigger_callback,
-    )
-    print("Service server 'add_two_ints' started")
-    print("Waiting for requests... (Ctrl+C to exit)")
+        print("Service servers started:")
+        print("  - add_two_ints")
+        print("  - trigger")
+        print("Waiting for requests... (Ctrl+C to exit)")
 
-    try:
-        # Keep the server running
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Shutting down...")
-    finally:
-        zrm.shutdown()
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nShutting down...")
+        finally:
+            add_server.close()
+            trigger_server.close()
 
 
 if __name__ == "__main__":

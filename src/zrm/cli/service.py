@@ -9,147 +9,121 @@ from google.protobuf import text_format
 import zrm
 
 
-# ANSI color codes
-class Color:
-    """ANSI color codes for terminal output."""
+class Style:
+    """ANSI styles for terminal output."""
 
-    HEADER = "\033[95m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
     BLUE = "\033[94m"
     CYAN = "\033[96m"
     GREEN = "\033[92m"
     YELLOW = "\033[93m"
     RED = "\033[91m"
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
+    R = "\033[0m"
 
 
 def list_services():
     """List all services in the ZRM network."""
-    # Create a temporary node for graph access
-    node = zrm.Node("_zrm_cli_service")
+    with zrm.open(name="_zrm_cli") as session:
+        graph = zrm.Graph(session)
+        services = graph.get_services()
 
-    # Get all services with their types
-    services = node.graph.get_service_names_and_types()
+        if not services:
+            print(f"{Style.YELLOW}No services found in the network{Style.R}")
+            graph.close()
+            return
 
-    if not services:
-        print(f"{Color.YELLOW}No services found in the network{Color.RESET}")
-        node.close()
-        return
+        for service_name, type_name in sorted(services):
+            print(f"{Style.BOLD}{Style.GREEN}{service_name}{Style.R}")
+            print(f"  Type: {Style.DIM}{type_name}{Style.R}")
 
-    print(f"{Color.BOLD}{Color.CYAN}=== ZRM Services ==={Color.RESET}\n")
+            servers = graph.get_servers(service_name)
+            if servers:
+                names = [e.name for e in servers]
+                print(
+                    f"  Servers: {Style.GREEN}{len(names)}{Style.R} {Style.DIM}{names}{Style.R}"
+                )
 
-    for service_name, type_name in sorted(services):
-        print(f"{Color.BOLD}{Color.GREEN}{service_name}{Color.RESET}")
-        print(f"  Type: {Color.DIM}{type_name}{Color.RESET}")
+            clients = graph.get_clients(service_name)
+            if clients:
+                names = [e.name for e in clients]
+                print(
+                    f"  Clients: {Style.YELLOW}{len(names)}{Style.R} {Style.DIM}{names}{Style.R}"
+                )
 
-        # Get service servers for this service
-        servers = node.graph.get_entities_by_service(
-            zrm.EntityKind.SERVICE, service_name
-        )
-        if servers:
-            server_nodes = [e.node_name for e in servers]
-            server_count = len(server_nodes)
-            print(
-                f"  Servers: {Color.GREEN}{server_count}{Color.RESET} {Color.DIM}{server_nodes}{Color.RESET}"
-            )
+            print()
 
-        # Get service clients for this service
-        clients = node.graph.get_entities_by_service(
-            zrm.EntityKind.CLIENT, service_name
-        )
-        if clients:
-            client_nodes = [e.node_name for e in clients]
-            client_count = len(client_nodes)
-            print(
-                f"  Clients: {Color.YELLOW}{client_count}{Color.RESET} {Color.DIM}{client_nodes}{Color.RESET}"
-            )
-
-        print()  # Empty line between services
-
-    node.close()
+        graph.close()
 
 
 def call_service(service: str, service_type_name: str | None, data: str):
-    """Call a service with the given request data.
+    """Call a service with the given request data."""
+    if service.startswith("/"):
+        print(
+            f"{Style.RED}Service name cannot start with '/'. Use '{service.lstrip('/')}' instead.{Style.R}"
+        )
+        sys.exit(1)
 
-    Args:
-        service: Service name to call
-        service_type_name: Protobuf service type name (auto-discovered if None)
-        data: Request data in protobuf text format
-    """
-    node = zrm.Node("_zrm_cli_call")
+    with zrm.open(name="_zrm_cli") as session:
+        graph = zrm.Graph(session)
 
-    # Auto-discover type if not provided
-    if service_type_name is None:
-        try:
-            services = node.graph.get_service_names_and_types()
-            for svc_name, type_name in services:
+        # Auto-discover type if not provided.
+        if service_type_name is None:
+            for svc_name, type_name in graph.get_services():
                 if svc_name == service:
                     service_type_name = type_name
-                    print(
-                        f"{Color.DIM}Auto-discovered type: {service_type_name}{Color.RESET}"
-                    )
+                    print(f"{Style.DIM}Type: {service_type_name}{Style.R}")
                     break
             else:
-                raise ValueError(f"Service '{service}' not found in the network")
-        except ValueError as e:
-            print(f"{Color.RED}Error: {e}{Color.RESET}")
-            print(
-                f"{Color.YELLOW}Hint: Service not found. You must specify the type with --type{Color.RESET}"
-            )
-            node.close()
+                print(f"{Style.RED}Service '{service}' not found{Style.R}")
+                print(f"{Style.YELLOW}Specify type with --type{Style.R}")
+                graph.close()
+                sys.exit(1)
+
+        try:
+            service_type = zrm.get_message_type(service_type_name)
+        except (ImportError, AttributeError, ValueError) as e:
+            print(f"{Style.RED}Error loading service type: {e}{Style.R}")
+            graph.close()
             sys.exit(1)
 
-    try:
-        service_type = zrm.get_message_type(service_type_name)
-    except (ImportError, AttributeError, ValueError) as e:
-        print(f"{Color.RED}Error loading service type: {e}{Color.RESET}")
+        # Parse the request from text format.
+        request = service_type.Request()
+        try:
+            text_format.Parse(data, request)
+        except text_format.ParseError as e:
+            print(f"{Style.RED}Error parsing request data: {e}{Style.R}")
+            graph.close()
+            sys.exit(1)
+
+        # Show server info.
+        servers = graph.get_servers(service)
+        if servers:
+            names = ", ".join(e.name for e in servers)
+            print(f"{Style.DIM}Server: {names}{Style.R}")
+
+        client = zrm.Client(session, service, service_type)
+
+        print(f"Calling {Style.BOLD}{service}{Style.R}")
         print(
-            f"{Color.YELLOW}Hint: Type format should be 'package/category/module/Type' (e.g., 'zrm/srvs/example/AddTwoInts'){Color.RESET}"
+            f"{Style.DIM}Request: {text_format.MessageToString(request, as_one_line=True)}{Style.R}\n"
         )
-        node.close()
-        sys.exit(1)
 
-    # Parse the request from text format
-    request = service_type.Request()
-    try:
-        text_format.Parse(data, request)
-    except text_format.ParseError as e:
-        print(f"{Color.RED}Error parsing request data: {e}{Color.RESET}")
-        node.close()
-        sys.exit(1)
-
-    # Create client and call service
-    client = node.create_client(service, service_type)
-
-    print(
-        f"{Color.GREEN}Calling service {Color.BOLD}{service}{Color.RESET}{Color.GREEN} [{service_type_name}]{Color.RESET}"
-    )
-    print(
-        f"{Color.DIM}Request: {text_format.MessageToString(request, as_one_line=True)}{Color.RESET}"
-    )
-    print(f"{Color.DIM}Waiting for response... (Ctrl+C to cancel){Color.RESET}\n")
-
-    future = client.call_async(request, timeout=300.0)
-    try:
-        response = future.result()
-        print(f"{Color.CYAN}Response:{Color.RESET}")
-        print(f"{Color.DIM}{text_format.MessageToString(response)}{Color.RESET}")
-    except KeyboardInterrupt:
-        print(f"\n{Color.YELLOW}Cancelling...{Color.RESET}")
-        future.cancel()
-        print(f"{Color.YELLOW}Cancelled{Color.RESET}")
-        sys.exit(130)
-    except zrm.ServiceCancelled:
-        print(f"{Color.YELLOW}Service call was cancelled{Color.RESET}")
-        sys.exit(130)
-    except Exception as e:
-        print(f"{Color.RED}Error calling service: {e}{Color.RESET}")
-        sys.exit(1)
-    finally:
-        client.close()
-        node.close()
+        try:
+            response = client.call(request, timeout=300.0)
+            print(f"{text_format.MessageToString(response)}", end="")
+        except TimeoutError:
+            print(f"{Style.RED}Timeout waiting for response{Style.R}")
+            sys.exit(1)
+        except zrm.ServiceError as e:
+            print(f"{Style.RED}Service error: {e}{Style.R}")
+            sys.exit(1)
+        except KeyboardInterrupt:
+            print(f"\n{Style.YELLOW}Interrupted{Style.R}")
+            sys.exit(130)
+        finally:
+            client.close()
+            graph.close()
 
 
 def main():
@@ -161,10 +135,8 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
-    # List command
     subparsers.add_parser("list", help="List all services in the network")
 
-    # Call command
     call_parser = subparsers.add_parser("call", help="Call a service")
     call_parser.add_argument("service", help="Service name")
     call_parser.add_argument("data", help="Request data in protobuf text format")
@@ -172,7 +144,7 @@ def main():
         "-t",
         "--type",
         dest="service_type",
-        help="Service type (e.g., zrm/srvs/example/AddTwoInts). Auto-discovered if not specified.",
+        help="Service type (e.g., zrm/srvs/examples/AddTwoInts). Auto-discovered if not specified.",
     )
 
     args = parser.parse_args()

@@ -1,9 +1,9 @@
 [project]
 name            = "zrm"
-version         = "2.1.0"
+version         = "3.0.0"
 description     = "A minimal, single-file communication middleware built on Zenoh"
 readme          = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 authors = [{ name = "JafarAbdi", email = "jafar.uruc@gmail.com" }]
 license = { file = "LICENSE" }
@@ -11,7 +11,6 @@ classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -31,10 +30,9 @@ CI         = "https://github.com/JafarAbdi/zrm/actions"
 dev = ["pre-commit>=4.2.0", "pytest>=8.4.1"]
 
 [project.scripts]
-zrm-node    = "zrm.cli.node:main"
+zrm-session = "zrm.cli.session:main"
 zrm-topic   = "zrm.cli.topic:main"
 zrm-service = "zrm.cli.service:main"
-zrm-action  = "zrm.cli.action:main"
 zrm-proto   = "zrm.cli.proto:main"
 
 [build-system]
