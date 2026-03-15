@@ -209,6 +209,25 @@ zrm-proto --dep zrm    # Include dependency protos
 </details>
 
 <details>
+<summary><b>Logging</b></summary>
+
+ZRM initializes Zenoh logging from the `RUST_LOG` environment variable, defaulting to `error`. Set it to see more output:
+
+```bash
+# Show info-level logs
+RUST_LOG=info python my_app.py
+
+# Show debug-level logs
+RUST_LOG=debug python my_app.py
+
+# Filter to specific modules
+RUST_LOG=zenoh=info python my_app.py
+```
+
+Valid levels: `error`, `warn`, `info`, `debug`, `trace`.
+</details>
+
+<details>
 <summary><b>Development</b></summary>
 
 ```bash
