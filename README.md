@@ -12,6 +12,10 @@ https://github.com/user-attachments/assets/3e41d9a7-f553-457b-a879-cae2af45bf63
 - **Type-safe**: Protobuf-based serialization with runtime type checking
 - **Ergonomic**: Pythonic API with sensible defaults
 
+## Migration from v2.x
+
+v3.0 replaces the `Node`-based API with a simpler session-centric architecture. If you prefer the old API, pin to `zrm==2.1.0`.
+
 ## Installation
 
 ```bash
