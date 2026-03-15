@@ -4,41 +4,31 @@
 import time
 
 import zrm
-from zrm.srvs import examples_pb2 as example_srvs
+from zrm.srvs import examples_pb2
 
 
 def main():
-    # Create node
-    node = zrm.Node("service_client_node")
+    with zrm.open(name="service_client") as session:
+        client = zrm.Client(session, "add_two_ints", examples_pb2.AddTwoInts)
+        print("Service client ready")
+        print("Calling service every 2 seconds... (Ctrl+C to exit)")
 
-    # Create service client via node factory method
-    client = node.create_client(
-        "add_two_ints",
-        example_srvs.AddTwoInts,
-    )
-    print("Service client ready")
-    print("Calling service every 2 seconds... (Ctrl+C to exit)")
+        count = 0
+        try:
+            while True:
+                request = examples_pb2.AddTwoInts.Request(a=count, b=count * 2)
 
-    count = 0
-    try:
-        while True:
-            # Create request
-            request = example_srvs.AddTwoInts.Request(a=count, b=count * 2)
+                print(f"Calling service: {request.a} + {request.b}")
+                response = client.call(request, timeout=5.0)
+                print(f"Response: {response.sum}\n")
 
-            # Call service
-            print(f"Calling service: {request.a} + {request.b}")
-            response = client.call(request)
-            print(f"Response: {response.sum}\n")
+                count += 1
+                time.sleep(2)
 
-            count += 1
-            time.sleep(2)
-
-    except KeyboardInterrupt:
-        print("Shutting down...")
-    finally:
-        client.close()
-        node.close()
-        zrm.shutdown()
+        except KeyboardInterrupt:
+            print("\nShutting down...")
+        finally:
+            client.close()
 
 
 if __name__ == "__main__":
