@@ -78,6 +78,40 @@ def find_package() -> tuple[str, pathlib.Path] | None:
     return None
 
 
+def list_proto_files(
+    package: str | None,
+    proto_dir: pathlib.Path | None,
+    deps: list[str],
+    categories: list[str],
+) -> None:
+    """List proto file paths for the current package and dependencies."""
+    packages: list[tuple[str, pathlib.Path]] = []
+    if package and proto_dir:
+        packages.append((package, proto_dir))
+
+    for dep in deps:
+        dep_proto_dir = get_package_proto_dir(dep)
+        if dep_proto_dir is None:
+            print(
+                f"{Color.RED}Error:{Color.RESET} Could not find proto dir for package '{dep}'",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        packages.append((dep, dep_proto_dir))
+
+    if not packages:
+        print(
+            "No proto files found. Use --dep PKG to list protos from an installed package.",
+        )
+        return
+
+    for name, path in packages:
+        print(f"{Color.CYAN}{name}{Color.RESET}")
+        for category in categories:
+            for proto_file in find_proto_files(path / category):
+                print(f"  {proto_file}")
+
+
 def main():
     """Main entry point for zrm-proto CLI."""
     parser = argparse.ArgumentParser(
@@ -105,14 +139,24 @@ Examples:
         default=pathlib.Path("src"),
         help="Output directory (default: src)",
     )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List proto file paths for the current package and dependencies.",
+    )
 
     args = parser.parse_args()
 
-    out_dir = args.out_dir.resolve()
     categories = ["msgs", "srvs", "actions"]
 
-    # Find package from current directory
+    # Find package from current directory (optional for --list)
     result = find_package()
+
+    if args.list:
+        package, proto_dir = result if result else (None, None)
+        list_proto_files(package, proto_dir, args.dep, categories)
+        return
+
     if result is None:
         print(
             f"{Color.RED}Error:{Color.RESET} No package with proto/ directory found in src/",
@@ -121,6 +165,8 @@ Examples:
         sys.exit(1)
 
     package, proto_dir = result
+
+    out_dir = args.out_dir.resolve()
 
     # Build proto paths for this package
     proto_paths: list[tuple[str, pathlib.Path]] = []
