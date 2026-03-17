@@ -22,7 +22,7 @@ v3.0 replaces the `Node`-based API with a simpler session-centric architecture. 
 pip install zrm
 ```
 
-Requires Python 3.11+.
+Requires Python 3.10+.
 
 ## Quick Start
 
