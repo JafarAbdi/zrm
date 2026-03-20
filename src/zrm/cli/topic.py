@@ -8,52 +8,7 @@ import time
 from google.protobuf import text_format
 
 import zrm
-
-
-class Style:
-    """ANSI styles for terminal output."""
-
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
-    BLUE = "\033[94m"
-    CYAN = "\033[96m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    RED = "\033[91m"
-    R = "\033[0m"
-
-
-def _discover_type(graph: zrm.Graph, topic: str) -> str | None:
-    """Get the message type for a topic from the graph."""
-    for topic_name, type_name in graph.get_topics():
-        if topic_name == topic:
-            return type_name
-    return None
-
-
-def _resolve_type(graph: zrm.Graph, topic: str, msg_type_name: str | None) -> str:
-    """Resolve message type: use provided or auto-discover from graph."""
-    if msg_type_name is not None:
-        return msg_type_name
-
-    discovered = _discover_type(graph, topic)
-    if discovered is None:
-        print(f"{Style.YELLOW}Topic not found. Specify type with --type{Style.R}")
-        graph.close()
-        sys.exit(1)
-
-    print(f"{Style.DIM}Type: {discovered}{Style.R}")
-    return discovered
-
-
-def _load_msg_type(graph: zrm.Graph, type_name: str) -> type:
-    """Load a protobuf message type by name, exit on failure."""
-    try:
-        return zrm.get_message_type(type_name)
-    except (ImportError, AttributeError, ValueError) as e:
-        print(f"{Style.RED}Error loading message type: {e}{Style.R}")
-        graph.close()
-        sys.exit(1)
+from zrm import cli
 
 
 def list_topics():
@@ -63,26 +18,26 @@ def list_topics():
         topics = graph.get_topics()
 
         if not topics:
-            print(f"{Style.YELLOW}No topics found in the network{Style.R}")
+            print(f"{cli.Style.YELLOW}No topics found in the network{cli.Style.R}")
             graph.close()
             return
 
         for topic_name, type_name in sorted(topics):
-            print(f"{Style.BOLD}{Style.GREEN}{topic_name}{Style.R}")
-            print(f"  Type: {Style.DIM}{type_name}{Style.R}")
+            print(f"{cli.Style.BOLD}{cli.Style.GREEN}{topic_name}{cli.Style.R}")
+            print(f"  Type: {cli.Style.DIM}{type_name}{cli.Style.R}")
 
             publishers = graph.get_publishers(topic_name)
             if publishers:
                 names = [e.name for e in publishers]
                 print(
-                    f"  Publishers: {Style.CYAN}{len(names)}{Style.R} {Style.DIM}{names}{Style.R}"
+                    f"  Publishers: {cli.Style.CYAN}{len(names)}{cli.Style.R} {cli.Style.DIM}{names}{cli.Style.R}"
                 )
 
             subscribers = graph.get_subscribers(topic_name)
             if subscribers:
                 names = [e.name for e in subscribers]
                 print(
-                    f"  Subscribers: {Style.BLUE}{len(names)}{Style.R} {Style.DIM}{names}{Style.R}"
+                    f"  Subscribers: {cli.Style.BLUE}{len(names)}{cli.Style.R} {cli.Style.DIM}{names}{cli.Style.R}"
                 )
 
             print()
@@ -92,35 +47,31 @@ def list_topics():
 
 def pub_topic(topic: str, msg_type_name: str | None, data: str, rate: float):
     """Publish messages to a topic."""
-    if topic.startswith("/"):
-        print(
-            f"{Style.RED}Topic cannot start with '/'. Use '{topic.lstrip('/')}' instead.{Style.R}"
-        )
-        sys.exit(1)
+    cli.validate_name(topic)
 
     with zrm.open(name="_zrm_cli") as session:
         graph = zrm.Graph(session)
-        msg_type_name = _resolve_type(graph, topic, msg_type_name)
-        msg_type = _load_msg_type(graph, msg_type_name)
+        msg_type_name = cli.resolve_topic_type(graph, topic, msg_type_name)
+        msg_type = cli.load_message_type(msg_type_name)
 
         msg = msg_type()
         try:
             text_format.Parse(data, msg)
         except text_format.ParseError as e:
-            print(f"{Style.RED}Error parsing message data: {e}{Style.R}")
+            print(f"{cli.Style.RED}Error parsing message data: {e}{cli.Style.R}")
             graph.close()
             sys.exit(1)
 
         pub = zrm.Publisher(session, topic, msg_type)
 
-        print(f"Publishing to {Style.BOLD}{topic}{Style.R} at {rate} Hz")
+        print(f"Publishing to {cli.Style.BOLD}{topic}{cli.Style.R} at {rate} Hz")
 
         try:
             interval = 1.0 / rate
             while True:
                 pub.publish(msg)
                 print(
-                    f"{Style.DIM}{text_format.MessageToString(msg, as_one_line=True)}{Style.R}"
+                    f"{cli.Style.DIM}{text_format.MessageToString(msg, as_one_line=True)}{cli.Style.R}"
                 )
                 time.sleep(interval)
         except KeyboardInterrupt:
@@ -132,29 +83,28 @@ def pub_topic(topic: str, msg_type_name: str | None, data: str, rate: float):
 
 def echo_topic(topic: str, msg_type_name: str | None):
     """Echo messages from a topic."""
-    if topic.startswith("/"):
-        print(
-            f"{Style.RED}Topic cannot start with '/'. Use '{topic.lstrip('/')}' instead.{Style.R}"
-        )
-        sys.exit(1)
+    cli.validate_name(topic)
 
     with zrm.open(name="_zrm_cli") as session:
         graph = zrm.Graph(session)
-        msg_type_name = _resolve_type(graph, topic, msg_type_name)
-        msg_type = _load_msg_type(graph, msg_type_name)
+        msg_type_name = cli.resolve_topic_type(graph, topic, msg_type_name)
+        msg_type = cli.load_message_type(msg_type_name)
 
         publishers = graph.get_publishers(topic)
         if publishers:
             names = ", ".join(e.name for e in publishers)
-            print(f"{Style.DIM}Publishers: {names}{Style.R}")
+            print(f"{cli.Style.DIM}Publishers: {names}{cli.Style.R}")
 
         def callback(msg):
-            print(f"{Style.BOLD}{topic}{Style.R}")
-            print(f"{Style.DIM}{text_format.MessageToString(msg)}{Style.R}", end="")
+            print(f"{cli.Style.BOLD}{topic}{cli.Style.R}")
+            print(
+                f"{cli.Style.DIM}{text_format.MessageToString(msg)}{cli.Style.R}",
+                end="",
+            )
 
         sub = zrm.Subscriber(session, topic, msg_type, callback=callback)
 
-        print(f"Listening to {Style.BOLD}{topic}{Style.R}\n")
+        print(f"Listening to {cli.Style.BOLD}{topic}{cli.Style.R}\n")
 
         try:
             while True:
@@ -168,21 +118,17 @@ def echo_topic(topic: str, msg_type_name: str | None):
 
 def hz_topic(topic: str, msg_type_name: str | None, window: int):
     """Measure message frequency on a topic."""
-    if topic.startswith("/"):
-        print(
-            f"{Style.RED}Topic cannot start with '/'. Use '{topic.lstrip('/')}' instead.{Style.R}"
-        )
-        sys.exit(1)
+    cli.validate_name(topic)
 
     with zrm.open(name="_zrm_cli") as session:
         graph = zrm.Graph(session)
-        msg_type_name = _resolve_type(graph, topic, msg_type_name)
-        msg_type = _load_msg_type(graph, msg_type_name)
+        msg_type_name = cli.resolve_topic_type(graph, topic, msg_type_name)
+        msg_type = cli.load_message_type(msg_type_name)
 
         publishers = graph.get_publishers(topic)
         if publishers:
             names = ", ".join(e.name for e in publishers)
-            print(f"{Style.DIM}Publishers: {names}{Style.R}")
+            print(f"{cli.Style.DIM}Publishers: {names}{cli.Style.R}")
 
         timestamps: list[float] = []
 
@@ -196,12 +142,12 @@ def hz_topic(topic: str, msg_type_name: str | None, window: int):
                 msg_count = len(timestamps) - 1
                 hz = msg_count / time_span if time_span > 0 else 0
                 print(
-                    f"  {Style.BOLD}{hz:.2f} Hz{Style.R}  {Style.DIM}(avg of {msg_count}){Style.R}"
+                    f"  {cli.Style.BOLD}{hz:.2f} Hz{cli.Style.R}  {cli.Style.DIM}(avg of {msg_count}){cli.Style.R}"
                 )
 
         sub = zrm.Subscriber(session, topic, msg_type, callback=callback)
 
-        print(f"Measuring {Style.BOLD}{topic}{Style.R}\n")
+        print(f"Measuring {cli.Style.BOLD}{topic}{cli.Style.R}\n")
 
         try:
             while True:
@@ -281,8 +227,8 @@ def main():
             case _:
                 parser.print_help()
                 sys.exit(1)
-    except Exception as e:
-        print(f"{Style.RED}Error: {e}{Style.R}")
+    except (ValueError, LookupError) as e:
+        print(f"{cli.Style.RED}Error: {e}{cli.Style.R}")
         sys.exit(1)
 
 

@@ -5,18 +5,7 @@ import argparse
 import sys
 
 import zrm
-
-
-class Style:
-    """ANSI styles for terminal output."""
-
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
-    BLUE = "\033[94m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    RED = "\033[91m"
-    R = "\033[0m"
+from zrm import cli
 
 
 def list_sessions():
@@ -33,13 +22,13 @@ def list_sessions():
             sessions.setdefault(entity.name, []).append(entity)
 
         if not sessions:
-            print(f"{Style.YELLOW}No sessions found in the network{Style.R}")
+            print(f"{cli.Style.YELLOW}No sessions found in the network{cli.Style.R}")
             graph.close()
             return
 
         for name in sorted(sessions):
             group = sessions[name]
-            print(f"{Style.BOLD}{Style.GREEN}{name}{Style.R}")
+            print(f"{cli.Style.BOLD}{cli.Style.GREEN}{name}{cli.Style.R}")
 
             pubs = [e for e in group if e.kind == zrm.EntityKind.PUBLISHER]
             subs = [e for e in group if e.kind == zrm.EntityKind.SUBSCRIBER]
@@ -47,28 +36,28 @@ def list_sessions():
             clients = [e for e in group if e.kind == zrm.EntityKind.CLIENT]
 
             if pubs:
-                print(f"  Publishers: {Style.BLUE}{len(pubs)}{Style.R}")
+                print(f"  Publishers: {cli.Style.BLUE}{len(pubs)}{cli.Style.R}")
                 for pub in pubs:
                     print(
-                        f"    {Style.BLUE}{pub.topic}{Style.R}  {Style.DIM}{pub.type_name}{Style.R}"
+                        f"    {cli.Style.BLUE}{pub.topic}{cli.Style.R}  {cli.Style.DIM}{pub.type_name}{cli.Style.R}"
                     )
             if subs:
-                print(f"  Subscribers: {Style.BLUE}{len(subs)}{Style.R}")
+                print(f"  Subscribers: {cli.Style.BLUE}{len(subs)}{cli.Style.R}")
                 for sub in subs:
                     print(
-                        f"    {Style.BLUE}{sub.topic}{Style.R}  {Style.DIM}{sub.type_name}{Style.R}"
+                        f"    {cli.Style.BLUE}{sub.topic}{cli.Style.R}  {cli.Style.DIM}{sub.type_name}{cli.Style.R}"
                     )
             if servers:
-                print(f"  Servers: {Style.BLUE}{len(servers)}{Style.R}")
+                print(f"  Servers: {cli.Style.BLUE}{len(servers)}{cli.Style.R}")
                 for srv in servers:
                     print(
-                        f"    {Style.BLUE}{srv.topic}{Style.R}  {Style.DIM}{srv.type_name}{Style.R}"
+                        f"    {cli.Style.BLUE}{srv.topic}{cli.Style.R}  {cli.Style.DIM}{srv.type_name}{cli.Style.R}"
                     )
             if clients:
-                print(f"  Clients: {Style.BLUE}{len(clients)}{Style.R}")
+                print(f"  Clients: {cli.Style.BLUE}{len(clients)}{cli.Style.R}")
                 for client in clients:
                     print(
-                        f"    {Style.BLUE}{client.topic}{Style.R}  {Style.DIM}{client.type_name}{Style.R}"
+                        f"    {cli.Style.BLUE}{client.topic}{cli.Style.R}  {cli.Style.DIM}{client.type_name}{cli.Style.R}"
                     )
 
             print()

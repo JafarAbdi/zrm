@@ -7,13 +7,7 @@ import pathlib
 import subprocess
 import sys
 
-
-class Color:
-    CYAN = "\033[96m"
-    GREEN = "\033[92m"
-    RED = "\033[91m"
-    RESET = "\033[0m"
-    DIM = "\033[2m"
+from zrm import cli
 
 
 def get_package_proto_dir(package: str) -> pathlib.Path | None:
@@ -57,7 +51,7 @@ def generate(
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"{Color.RED}Error:{Color.RESET} {result.stderr}", file=sys.stderr)
+        print(f"{cli.Style.RED}Error:{cli.Style.R} {result.stderr}", file=sys.stderr)
         return False
     return True
 
@@ -78,13 +72,17 @@ def find_package() -> tuple[str, pathlib.Path] | None:
     return None
 
 
-def list_proto_files(
+def collect_proto_files(
     package: str | None,
     proto_dir: pathlib.Path | None,
     deps: list[str],
     categories: list[str],
-) -> None:
-    """List proto file paths for the current package and dependencies."""
+) -> dict[str, list[pathlib.Path]]:
+    """Collect proto files for a package and its dependencies.
+
+    Returns a mapping of package name to list of proto file paths.
+    Raises LookupError if a dependency's proto directory cannot be found.
+    """
     packages: list[tuple[str, pathlib.Path]] = []
     if package and proto_dir:
         packages.append((package, proto_dir))
@@ -92,24 +90,16 @@ def list_proto_files(
     for dep in deps:
         dep_proto_dir = get_package_proto_dir(dep)
         if dep_proto_dir is None:
-            print(
-                f"{Color.RED}Error:{Color.RESET} Could not find proto dir for package '{dep}'",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+            raise LookupError(f"Could not find proto dir for package '{dep}'")
         packages.append((dep, dep_proto_dir))
 
-    if not packages:
-        print(
-            "No proto files found. Use --dep PKG to list protos from an installed package.",
-        )
-        return
-
+    result: dict[str, list[pathlib.Path]] = {}
     for name, path in packages:
-        print(f"{Color.CYAN}{name}{Color.RESET}")
+        files: list[pathlib.Path] = []
         for category in categories:
-            for proto_file in find_proto_files(path / category):
-                print(f"  {proto_file}")
+            files.extend(find_proto_files(path / category))
+        result[name] = files
+    return result
 
 
 def main():
@@ -154,12 +144,21 @@ Examples:
 
     if args.list:
         package, proto_dir = result if result else (None, None)
-        list_proto_files(package, proto_dir, args.dep, categories)
+        collected = collect_proto_files(package, proto_dir, args.dep, categories)
+        if not collected:
+            print(
+                "No proto files found. Use --dep PKG to list protos from an installed package."
+            )
+            return
+        for name, files in collected.items():
+            print(f"{cli.Style.CYAN}{name}{cli.Style.R}")
+            for proto_file in files:
+                print(f"  {proto_file}")
         return
 
     if result is None:
         print(
-            f"{Color.RED}Error:{Color.RESET} No package with proto/ directory found in src/",
+            f"{cli.Style.RED}Error:{cli.Style.R} No package with proto/ directory found in src/",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -180,7 +179,7 @@ Examples:
         dep_proto_dir = get_package_proto_dir(dep)
         if dep_proto_dir is None:
             print(
-                f"{Color.RED}Error:{Color.RESET} Could not find proto dir for package '{dep}'",
+                f"{cli.Style.RED}Error:{cli.Style.R} Could not find proto dir for package '{dep}'",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -205,17 +204,19 @@ Examples:
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"{Color.CYAN}Package:{Color.RESET} {package}")
-    print(f"{Color.CYAN}Proto dir:{Color.RESET} {proto_dir}")
-    print(f"{Color.CYAN}Output dir:{Color.RESET} {out_dir}")
-    print(f"{Color.CYAN}Proto paths:{Color.RESET}")
+    print(f"{cli.Style.CYAN}Package:{cli.Style.R} {package}")
+    print(f"{cli.Style.CYAN}Proto dir:{cli.Style.R} {proto_dir}")
+    print(f"{cli.Style.CYAN}Output dir:{cli.Style.R} {out_dir}")
+    print(f"{cli.Style.CYAN}Proto paths:{cli.Style.R}")
     for mapping, path in proto_paths:
-        print(f"  {Color.DIM}{mapping}{Color.RESET} -> {path}")
-    print(f"{Color.CYAN}Files:{Color.RESET} {[f.name for f in proto_files]}")
+        print(f"  {cli.Style.DIM}{mapping}{cli.Style.R} -> {path}")
+    print(f"{cli.Style.CYAN}Files:{cli.Style.R} {[f.name for f in proto_files]}")
     print()
 
     if generate(proto_files, out_dir, proto_paths):
-        print(f"{Color.GREEN}Generated {len(proto_files)} proto file(s){Color.RESET}")
+        print(
+            f"{cli.Style.GREEN}Generated {len(proto_files)} proto file(s){cli.Style.R}"
+        )
     else:
         sys.exit(1)
 

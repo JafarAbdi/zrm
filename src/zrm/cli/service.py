@@ -4,22 +4,8 @@
 import argparse
 import sys
 
-from google.protobuf import text_format
-
 import zrm
-
-
-class Style:
-    """ANSI styles for terminal output."""
-
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
-    BLUE = "\033[94m"
-    CYAN = "\033[96m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    RED = "\033[91m"
-    R = "\033[0m"
+from zrm import cli
 
 
 def list_services():
@@ -29,26 +15,26 @@ def list_services():
         services = graph.get_services()
 
         if not services:
-            print(f"{Style.YELLOW}No services found in the network{Style.R}")
+            print(f"{cli.Style.YELLOW}No services found in the network{cli.Style.R}")
             graph.close()
             return
 
         for service_name, type_name in sorted(services):
-            print(f"{Style.BOLD}{Style.GREEN}{service_name}{Style.R}")
-            print(f"  Type: {Style.DIM}{type_name}{Style.R}")
+            print(f"{cli.Style.BOLD}{cli.Style.GREEN}{service_name}{cli.Style.R}")
+            print(f"  Type: {cli.Style.DIM}{type_name}{cli.Style.R}")
 
             servers = graph.get_servers(service_name)
             if servers:
                 names = [e.name for e in servers]
                 print(
-                    f"  Servers: {Style.GREEN}{len(names)}{Style.R} {Style.DIM}{names}{Style.R}"
+                    f"  Servers: {cli.Style.GREEN}{len(names)}{cli.Style.R} {cli.Style.DIM}{names}{cli.Style.R}"
                 )
 
             clients = graph.get_clients(service_name)
             if clients:
                 names = [e.name for e in clients]
                 print(
-                    f"  Clients: {Style.YELLOW}{len(names)}{Style.R} {Style.DIM}{names}{Style.R}"
+                    f"  Clients: {cli.Style.YELLOW}{len(names)}{cli.Style.R} {cli.Style.DIM}{names}{cli.Style.R}"
                 )
 
             print()
@@ -58,72 +44,19 @@ def list_services():
 
 def call_service(service: str, service_type_name: str | None, data: str):
     """Call a service with the given request data."""
-    if service.startswith("/"):
-        print(
-            f"{Style.RED}Service name cannot start with '/'. Use '{service.lstrip('/')}' instead.{Style.R}"
-        )
+    print(f"Calling {cli.Style.BOLD}{service}{cli.Style.R}")
+    try:
+        response = cli.call(service, data, service_type=service_type_name)
+        print(response, end="")
+    except TimeoutError:
+        print(f"{cli.Style.RED}Timeout waiting for response{cli.Style.R}")
         sys.exit(1)
-
-    with zrm.open(name="_zrm_cli") as session:
-        graph = zrm.Graph(session)
-
-        # Auto-discover type if not provided.
-        if service_type_name is None:
-            for svc_name, type_name in graph.get_services():
-                if svc_name == service:
-                    service_type_name = type_name
-                    print(f"{Style.DIM}Type: {service_type_name}{Style.R}")
-                    break
-            else:
-                print(f"{Style.RED}Service '{service}' not found{Style.R}")
-                print(f"{Style.YELLOW}Specify type with --type{Style.R}")
-                graph.close()
-                sys.exit(1)
-
-        try:
-            service_type = zrm.get_message_type(service_type_name)
-        except (ImportError, AttributeError, ValueError) as e:
-            print(f"{Style.RED}Error loading service type: {e}{Style.R}")
-            graph.close()
-            sys.exit(1)
-
-        # Parse the request from text format.
-        request = service_type.Request()
-        try:
-            text_format.Parse(data, request)
-        except text_format.ParseError as e:
-            print(f"{Style.RED}Error parsing request data: {e}{Style.R}")
-            graph.close()
-            sys.exit(1)
-
-        # Show server info.
-        servers = graph.get_servers(service)
-        if servers:
-            names = ", ".join(e.name for e in servers)
-            print(f"{Style.DIM}Server: {names}{Style.R}")
-
-        client = zrm.Client(session, service, service_type)
-
-        print(f"Calling {Style.BOLD}{service}{Style.R}")
-        print(
-            f"{Style.DIM}Request: {text_format.MessageToString(request, as_one_line=True)}{Style.R}\n"
-        )
-
-        try:
-            response = client.call(request, timeout=300.0)
-            print(f"{text_format.MessageToString(response)}", end="")
-        except TimeoutError:
-            print(f"{Style.RED}Timeout waiting for response{Style.R}")
-            sys.exit(1)
-        except zrm.ServiceError as e:
-            print(f"{Style.RED}Service error: {e}{Style.R}")
-            sys.exit(1)
-        except KeyboardInterrupt:
-            print(f"\n{Style.YELLOW}Interrupted{Style.R}")
-            sys.exit(130)
-        finally:
-            client.close()
-            graph.close()
+    except zrm.ServiceError as e:
+        print(f"{cli.Style.RED}Service error: {e}{cli.Style.R}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print(f"\n{cli.Style.YELLOW}Interrupted{cli.Style.R}")
+        sys.exit(130)
 
 
 def main():
@@ -149,14 +82,18 @@ def main():
 
     args = parser.parse_args()
 
-    match args.command:
-        case "list":
-            list_services()
-        case "call":
-            call_service(args.service, args.service_type, args.data)
-        case _:
-            parser.print_help()
-            sys.exit(1)
+    try:
+        match args.command:
+            case "list":
+                list_services()
+            case "call":
+                call_service(args.service, args.service_type, args.data)
+            case _:
+                parser.print_help()
+                sys.exit(1)
+    except (ValueError, LookupError) as e:
+        print(f"{cli.Style.RED}Error: {e}{cli.Style.R}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
