@@ -19,8 +19,7 @@ classifiers = [
   "Topic :: System :: Networking",
 ]
 
-# Check https://github.com/eclipse-zenoh/zenoh/issues/2492 for the reason behind the upper bound of the zenoh dependency.
-dependencies = ["eclipse-zenoh>=1.6.2,<1.8.0", "protobuf>=6.33.0"]
+dependencies = ["eclipse-zenoh>=1.6.2", "protobuf>=6.33.0"]
 
 [project.urls]
 Homepage   = "https://github.com/JafarAbdi/zrm"
