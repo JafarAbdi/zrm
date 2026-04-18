@@ -324,7 +324,7 @@ wheels = [
 
 [[package]]
 name = "zrm"
-version = "3.1.0"
+version = "3.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "eclipse-zenoh" },
@@ -339,7 +339,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "eclipse-zenoh", specifier = ">=1.6.2,<1.8.0" },
+    { name = "eclipse-zenoh", specifier = ">=1.6.2" },
     { name = "protobuf", specifier = ">=6.33.0" },
 ]
 
