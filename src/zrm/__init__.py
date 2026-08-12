@@ -9,6 +9,7 @@ import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 # StrEnum was added in Python 3.11
 if sys.version_info >= (3, 11):
@@ -48,6 +49,13 @@ else:
 
 import zenoh
 from google.protobuf.message import Message
+
+# TODO(python>=3.12): replace with PEP 695 type parameter syntax.
+# Client callers annotate the pair themselves. A service class does not expose
+# its nested Request/Response to the type system, so they cannot be inferred.
+Msg = TypeVar("Msg", bound=Message)
+Req = TypeVar("Req", bound=Message)
+Resp = TypeVar("Resp", bound=Message)
 
 
 DOMAIN_DEFAULT = 0
@@ -371,10 +379,10 @@ def _parse_lv_key(key: str) -> Entity | None:
     )
 
 
-class Publisher:
+class Publisher(Generic[Msg]):
     """Publishes protobuf messages to a topic."""
 
-    def __init__(self, session: Session, topic: str, msg_type: type[Message]):
+    def __init__(self, session: Session, topic: str, msg_type: type[Msg]):
         """Create a publisher.
 
         Args:
@@ -399,7 +407,7 @@ class Publisher:
             _make_lv_key(session, EntityKind.PUBLISHER, topic, self._type_name)
         )
 
-    def publish(self, msg: Message) -> None:
+    def publish(self, msg: Msg) -> None:
         """Publish a message.
 
         Args:
@@ -422,15 +430,15 @@ class Publisher:
         self._pub.undeclare()
 
 
-class Subscriber:
+class Subscriber(Generic[Msg]):
     """Subscribes to protobuf messages on a topic."""
 
     def __init__(
         self,
         session: Session,
         topic: str,
-        msg_type: type[Message],
-        callback: Callable[[Message], None] | None = None,
+        msg_type: type[Msg],
+        callback: Callable[[Msg], None] | None = None,
     ):
         """Create a subscriber.
 
@@ -485,7 +493,7 @@ class Subscriber:
             _make_lv_key(session, EntityKind.SUBSCRIBER, topic, self._type_name)
         )
 
-    def latest(self) -> Message | None:
+    def latest(self) -> Msg | None:
         """Get the most recently received message, or None if none received."""
         with self._lock:
             return self._latest
@@ -496,7 +504,7 @@ class Subscriber:
         self._sub.undeclare()
 
 
-class Server:
+class Server(Generic[Req, Resp]):
     """Serves requests for a service."""
 
     def __init__(
@@ -504,7 +512,7 @@ class Server:
         session: Session,
         name: str,
         service_type: type,
-        handler: Callable[[Message], Message],
+        handler: Callable[[Req], Resp],
     ):
         """Create a service server.
 
@@ -584,7 +592,7 @@ class Server:
         self._queryable.undeclare()
 
 
-class Client:
+class Client(Generic[Req, Resp]):
     """Calls a service."""
 
     def __init__(self, session: Session, name: str, service_type: type):
@@ -616,7 +624,7 @@ class Client:
             _make_lv_key(session, EntityKind.CLIENT, name, self._type_name)
         )
 
-    def call(self, request: Message, timeout: float | None = None) -> Message:
+    def call(self, request: Req, timeout: float | None = None) -> Resp:
         """Call the service synchronously.
 
         Args:

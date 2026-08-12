@@ -1,4 +1,5 @@
-target-version = "py312"
+# Match the package's minimum Python version.
+target-version = "py310"
 exclude        = ["examples/*.py", "src/zrm/msgs/*", "src/zrm/srvs/*", "src/zrm/actions/*", "tests/*.py"]
 
 [lint]
